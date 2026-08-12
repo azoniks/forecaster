@@ -5,9 +5,6 @@ import shutil
 import sqlite3
 from pathlib import Path
 
-from .loaders import available_schedule_sheets, load_schedule, load_schedule_details
-
-
 class AppDatabase:
     def __init__(self, path: Path):
         self.path = path
@@ -109,81 +106,6 @@ class AppDatabase:
                 except (OSError, ValueError, json.JSONDecodeError):
                     pass
             self.save_document(key, value)
-
-    def migrate_schedules(self, workbook: Path, staff_path: Path, overrides_path: Path):
-        with self.connect() as db:
-            if db.execute("SELECT 1 FROM schedule_months LIMIT 1").fetchone():
-                return
-        staff = self._json_list(staff_path)
-        overrides = self._json_list(overrides_path)
-        with self.connect() as db:
-            for position, month in enumerate(available_schedule_sheets(workbook)):
-                db.execute("INSERT INTO schedule_months(name,position) VALUES(?,?)", (month, position))
-                details = load_schedule_details(workbook, month)
-                employees = dict(details["employees"])
-                patterns = {}
-                for item in staff:
-                    if item.get("sheet") != month:
-                        continue
-                    employee_id = str(item.get("login") or item.get("name") or "")
-                    if not employee_id:
-                        continue
-                    employees.setdefault(employee_id, {
-                        "id": employee_id,
-                        "name": str(item.get("name") or ""),
-                        "login": str(item.get("login") or ""),
-                        "role": str(item.get("role") or ""),
-                    })
-                    patterns[employee_id] = str(item.get("schedule_pattern") or "")
-                shifts = {
-                    (shift.login or shift.name, shift.date): (shift.start, shift.end, "work")
-                    for shift in load_schedule(workbook, month)
-                }
-                for key, activity in details["activities"].items():
-                    shifts[key] = (None, None, activity)
-                for item in overrides:
-                    if item.get("sheet") != month:
-                        continue
-                    key = (str(item.get("employee_id") or ""), str(item.get("date") or ""))
-                    activity = str(item.get("activity") or "work")
-                    if activity == "work" and item.get("start") is not None and item.get("end") is not None:
-                        shifts[key] = (int(item["start"]), int(item["end"]), "work")
-                    else:
-                        shifts[key] = (None, None, activity)
-                dates = sorted({date for _, date in shifts})
-                db.executemany(
-                    "INSERT INTO schedule_dates(month,date) VALUES(?,?)",
-                    [(month, date) for date in dates],
-                )
-                for employee_order, (employee_id, item) in enumerate(employees.items(), 1):
-                    db.execute(
-                        "INSERT INTO schedule_employees(month,employee_id,name,login,role,is_vacancy,schedule_pattern,sort_order) "
-                        "VALUES(?,?,?,?,?,?,?,?)",
-                        (
-                            month, employee_id, str(item["name"]), str(item.get("login") or ""),
-                            str(item["role"]), int(str(item["name"]).lower().startswith("вакансия")),
-                            patterns.get(employee_id, ""), employee_order,
-                        ),
-                    )
-                db.executemany(
-                    "INSERT INTO schedule_cells(month,employee_id,date,start,end,activity) VALUES(?,?,?,?,?,?)",
-                    [
-                        (month, employee_id, date, start, end, activity)
-                        for (employee_id, date), (start, end, activity) in shifts.items()
-                        if employee_id in employees
-                    ],
-                )
-
-    @staticmethod
-    def _json_list(path: Path):
-        if not path.exists():
-            return []
-        try:
-            with path.open("r", encoding="utf-8") as source:
-                value = json.load(source)
-            return value if isinstance(value, list) else []
-        except (OSError, ValueError, json.JSONDecodeError):
-            return []
 
     def schedule_sheets(self) -> list[str]:
         with self.connect() as db:

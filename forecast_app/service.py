@@ -14,8 +14,6 @@ from .config import StaffingConfig, default_config
 from .database import AppDatabase
 
 from .loaders import (
-    available_schedule_sheets,
-    load_schedule_details,
     load_or_build_history,
     load_schedule,
     shifts_to_hourly,
@@ -35,7 +33,6 @@ class ForecastService:
         self.root = root
         self.workload_path = root / "нагрузка"
         self.queue_path = root / "очереди.xlsx"
-        self.schedule_path = root / "МЕТРИКА (2).xlsx"
         self.cache_path = root / "cache" / "history.json"
         self.staffing_config = StaffingConfig(root / "config" / "staffing.json")
         self.schedule_overrides_path = root / "config" / "schedule_overrides.json"
@@ -55,9 +52,6 @@ class ForecastService:
             "hr_records": {},
             "hr_services": [{"id": "metrika", "name": "Метрика"}],
         })
-        self.database.migrate_schedules(
-            self.schedule_path, self.schedule_staff_path, self.schedule_overrides_path
-        )
         self._history = None
         self._queue_rules = None
 
