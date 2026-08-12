@@ -1,0 +1,18 @@
+[Unit]
+Description=Support Planning Forecaster
+After=network.target
+
+[Service]
+Type=simple
+User=azoniks
+Group=azoniks
+WorkingDirectory=/home/azoniks/forecaster
+EnvironmentFile=/home/azoniks/forecaster/config/server.env
+ExecStart=/usr/bin/python3 /home/azoniks/forecaster/app.py --host 0.0.0.0 --port 8088
+Restart=on-failure
+RestartSec=3
+PrivateTmp=true
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

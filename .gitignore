@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+cache/*.json
+backups/
+data/*.sqlite3
+.history-upload.tmp
+.queues-upload.xlsx
+config/staffing.json
+config/schedule_staff.json
+config/schedule_overrides.json
+config/server.env
+config/*.tmp
+.DS_Store
+нагрузка
+*.xlsx

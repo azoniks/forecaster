@@ -1,0 +1,404 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Планирование команды поддержки</title>
+  <script>document.documentElement.dataset.initialTool=new URLSearchParams(location.search).get('tool')||'home'</script>
+  <link rel="stylesheet" href="/static/styles.css?v=20260811-20">
+</head>
+<body>
+  <div class="mobile-overlay" id="mobileOverlay"></div>
+  <div class="shell">
+    <header class="topbar">
+      <button class="brand-row brand-home" id="homeBtn" type="button" aria-label="На главную">
+        <div class="brand-mark">P</div>
+        <div>
+          <div class="eyebrow">SUPPORT PLANNING TOOLS</div>
+          <h1>Планирование команды</h1>
+        </div>
+      </button>
+    </header>
+
+    <main>
+      <section class="tab-page home-page active" id="homeTab">
+        <div class="home-hero">
+          <span class="result-label">РАБОЧЕЕ ПРОСТРАНСТВО РУКОВОДИТЕЛЯ</span>
+          <h2>Что будем планировать?</h2>
+          <p>Выберите инструмент. Все разделы используют единые данные о сотрудниках, сменах, очередях и нагрузке.</p>
+        </div>
+        <div class="tool-grid">
+          <button class="tool-card forecast-tool" data-open-tool="forecast">
+            <span class="tool-icon">↗</span><span class="tool-copy"><small>АНАЛИТИКА</small><b>Прогноз нагрузки</b><p>Оценить будущий объём обращений, соблюдение SLA и потребность в сотрудниках.</p><em>Открыть прогноз <i>→</i></em></span>
+          </button>
+          <button class="tool-card schedule-tool" data-open-tool="schedule">
+            <span class="tool-icon">▦</span><span class="tool-copy"><small>ПЛАНИРОВАНИЕ</small><b>Графики работы</b><p>Составить смены команды, проверить часы и посмотреть персональный календарь.</p><em>Открыть графики <i>→</i></em></span>
+          </button>
+        </div>
+      </section>
+
+      <section class="tab-page content" id="forecastTab" hidden>
+        <nav class="breadcrumbs" aria-label="Хлебные крошки"><button data-open-tool="home">Главная</button><span>›</span><b>Прогноз нагрузки</b></nav>
+        <nav class="forecast-nav" aria-label="Разделы прогноза"><button class="active" data-open-tool="forecast">Обзор прогноза</button><button data-open-tool="settings">Настройки и данные</button><button data-open-tool="methodology">Методология</button></nav>
+        <div class="forecast-data-state"><div class="data-pill"><span></span><div><b>Данные актуальны</b><small id="dataRange">проверяем период…</small></div></div></div>
+        <div id="loading" class="loading">Считаем прогноз…</div>
+        <div id="dashboard" hidden>
+          <div class="result-head"><div><span class="result-label">РЕЗУЛЬТАТ СЦЕНАРИЯ</span><h2>Обзор прогноза</h2></div><div class="scenario-badge" id="scenarioBadge">28 дней · резерв 15%</div></div>
+          <div class="kpis">
+            <article class="kpi"><span class="kpi-icon trend">↗</span><div><small>Изменение количества обращений</small><strong id="changeKpi">—</strong><em id="changeKpiNote">сравниваем периоды…</em></div></article>
+            <article class="kpi"><span class="kpi-icon shield">◇</span><div><small>Фактическое соблюдение SLA</small><strong id="coverageKpi">—</strong><em id="coverageKpiNote">проверяем долю обращений в целевом времени…</em></div></article>
+            <article class="kpi"><span class="kpi-icon alert">!</span><div><small>Группы ниже целевого SLA 90%</small><strong id="deficitKpi">—</strong><em id="deficitKpiNote">проверяем фактическое ожидание…</em></div></article>
+            <article class="kpi accent"><span class="kpi-icon people">+</span><div><small>Рекомендация</small><strong id="hireKpi">—</strong><em>дополнительных сотрудников</em></div></article>
+          </div>
+
+          <div class="section-head"><div><h2>Фактическое соблюдение SLA по очередям</h2><p>Доля периодов, назначенных не позднее 30 минут, а для экспертных очередей — не позднее 40 минут. Цель — 90%.</p></div></div>
+          <div id="groupCards" class="group-grid"></div>
+
+          <div class="split">
+            <article class="panel chart-panel"><div class="panel-title"><span>Нагрузка и дефицит по дням</span><small id="chartDates"></small></div><div id="dailyChart" class="chart"></div><div class="legend"><span class="demand-dot">Нагрузка</span><span class="deficit-dot">Дефицит</span></div></article>
+            <article class="panel recommendations"><div class="panel-title"><span>Что делать</span></div><div id="recommendations"></div></article>
+          </div>
+
+          <article class="panel heat-panel"><div class="panel-title"><span>Покрытие нагрузки по часам</span><select id="riskQueue" aria-label="Выберите очередь"></select></div><p class="heat-note">Процент нагрузки выбранной очереди, который текущая команда сможет обработать в каждом часу. Чем краснее ячейка, тем выше риск нехватки сотрудников.</p><div class="heat-scroll"><div id="heatmap" class="heatmap"></div></div></article>
+
+          <div class="split lower">
+            <article class="panel"><div class="panel-title"><span>Команда в графике</span><small id="scheduleName"></small></div><div id="staff" class="staff-grid"></div></article>
+            <article class="panel critical-panel"><div class="panel-title"><span>Критические часы</span><small>где и кого не хватает в пиковые часы</small></div><div class="table-wrap"><table><thead><tr><th>Дата / время</th><th>Покрытие</th><th>Не покрыто</th><th>Очереди риска</th><th>Нужно дополнительно</th></tr></thead><tbody id="critical"></tbody></table></div></article>
+          </div>
+        </div>
+      </section>
+
+      <section class="tab-page schedule-page" id="scheduleTab" hidden>
+        <nav class="breadcrumbs" aria-label="Хлебные крошки"><button data-open-tool="home">Главная</button><span>›</span><b>Графики работы</b></nav>
+        <nav class="schedule-section-tabs" aria-label="Разделы графика">
+          <button class="active" type="button" data-schedule-section="workspace">График</button>
+          <button type="button" data-schedule-section="guide">Как работать</button>
+        </nav>
+        <div id="scheduleWorkspace">
+        <div class="schedule-toolbar">
+          <div class="settings-head"><h2>График команды</h2><p>Добавляйте сотрудников и назначайте смены команды.</p></div>
+          <div class="schedule-toolbar-actions"><button class="secondary-btn" id="createScheduleMonth"><span>Добавить следующий месяц</span></button><button class="secondary-btn" id="downloadScheduleImage"><span>Скачать для операторов</span></button><button class="secondary-btn" id="showBulkScheduleForm"><span>Изменить период</span></button><button class="primary schedule-add-employee" id="showScheduleEmployeeForm"><span>Добавить сотрудника</span><i>＋</i></button></div>
+        </div>
+        <div class="schedule-filters panel">
+          <label>Месяц<select id="scheduleSheet"></select></label>
+          <label>Должность<select id="scheduleRoleFilter"><option value="all">Все должности</option></select></label>
+          <label>Сотрудник<select id="scheduleEmployeeFilter"><option value="all">Все сотрудники</option></select></label>
+          <label>Тип занятости<select id="scheduleActivityFilter"><option value="all">Все типы</option><option value="work">Работа</option><option value="vacation">Отпуск</option><option value="sick">Больничный</option><option value="training">Обучение</option><option value="day_off">Выходной</option></select></label>
+        </div>
+        <div id="scheduleLoading" class="loading">Загружаем график…</div>
+        <div id="scheduleContent" hidden>
+          <form class="panel schedule-employee-form" id="scheduleEditEmployeeForm" hidden>
+            <div class="panel-title"><span>Редактирование сотрудника</span><button type="button" class="text-btn" id="closeScheduleEditEmployeeForm">Закрыть</button></div>
+            <input name="employee_id" type="hidden">
+            <div class="schedule-employee-fields">
+              <label>ФИО<input name="name" required></label>
+              <label>Логин<input name="login" required></label>
+              <label>Должность<select name="role" id="scheduleEditEmployeeRole" required></select></label>
+            </div>
+            <div class="schedule-employee-actions"><span id="scheduleEditEmployeeFormStatus"></span><button class="primary" type="submit"><span>Сохранить изменения</span><i>→</i></button></div>
+          </form>
+          <form class="panel schedule-bulk-form" id="scheduleBulkForm" hidden>
+            <div class="panel-title"><span>Массовое изменение дней</span><button type="button" class="text-btn" id="closeBulkScheduleForm">Закрыть</button></div>
+            <div class="schedule-employee-fields">
+              <label>Должность<select id="bulkScheduleRole" required></select></label>
+              <label>Сотрудник<select name="employee_id" id="bulkScheduleEmployee" required></select></label>
+              <label>С даты<input name="date_from" id="bulkScheduleFrom" type="date" required></label>
+              <label>По дату<input name="date_to" id="bulkScheduleTo" type="date" required></label>
+              <label>Занятость<select name="activity" id="bulkScheduleActivity"><option value="work">Работа</option><option value="day_off">Выходной</option><option value="vacation">Отпуск</option><option value="sick">Больничный</option><option value="training">Обучение</option></select></label>
+              <label id="bulkScheduleShiftWrap">Смена<input name="shift" placeholder="Например, 8/20"></label>
+            </div>
+            <div class="schedule-employee-actions"><span id="scheduleBulkFormStatus"></span><button class="primary" type="submit"><span>Применить к периоду</span><i>→</i></button></div>
+          </form>
+          <form class="panel schedule-employee-form" id="scheduleEmployeeForm" hidden>
+            <div class="panel-title"><span>Новый сотрудник</span><button type="button" class="text-btn" id="closeScheduleEmployeeForm">Закрыть</button></div>
+            <div class="schedule-employee-fields">
+              <label>ФИО<input name="name" required></label>
+              <label>Логин<input name="login" required></label>
+              <label>Должность<select name="role" id="scheduleEmployeeRole" required></select></label>
+              <label>Тип графика<select name="schedule_pattern" required><option value="">Выберите график</option><optgroup label="5/2"><option>5/2 8-17</option><option>5/2 9-18</option><option>5/2 10-19</option><option>5/2 13-22</option><option>5/2 15-00</option></optgroup><optgroup label="2/2"><option>2/2 8-20</option><option>2/2 9-21</option><option>2/2 10-22</option><option>2/2 20-08</option></optgroup></select></label>
+            </div>
+            <div class="schedule-employee-actions"><span id="scheduleEmployeeFormStatus"></span><button class="primary" type="submit"><span>Добавить в график</span><i>→</i></button></div>
+          </form>
+          <article class="panel vacation-capacity-panel">
+            <div class="panel-title"><span>Отпускная ёмкость</span><button type="button" class="text-btn" id="refreshVacationCapacity">Обновить расчёт</button></div>
+            <div id="vacationCapacityLoading" class="vacation-capacity-loading">Рассчитываем сезонность и доступность отпусков…</div>
+            <div id="vacationCapacityContent" hidden>
+              <div class="vacation-season-cards" id="vacationSeasonCards"></div>
+              <p class="vacation-capacity-note">В таблице показан весь месяц. Учитываются отпуска, больничные, обучения и фактические смены. Критические даты требуют субботника для согласования дополнительного отпуска.</p>
+              <div class="table-wrap vacation-month-wrap"><table class="vacation-table"><thead id="vacationCapacityHead"></thead><tbody id="vacationCapacityBody"></tbody></table></div>
+            </div>
+          </article>
+          <div class="schedule-role-summary" id="scheduleRoleSummary"></div>
+          <article class="panel schedule-panel" id="managerSchedule">
+            <div class="panel-title"><span>Смены и занятость сотрудников</span><small>Нажмите на ячейку, чтобы назначить смену, отпуск, больничный или обучение</small></div>
+            <div class="schedule-pattern-legend" id="schedulePatternLegend" aria-label="Цвета графиков"></div>
+            <div class="schedule-legend" aria-label="Обозначения графика"><span><i class="legend-vacation">О</i>Отпуск</span><span><i class="legend-sick">Б</i>Больничный</span><span><i class="legend-training">У</i>Обучение</span><span><i class="legend-day-off">—</i>Выходной</span></div>
+            <div class="schedule-table-wrap"><table class="schedule-table"><thead id="scheduleHead"></thead><tbody id="scheduleBody"></tbody></table></div>
+          </article>
+          <div id="scheduleStatus" class="schedule-status"></div>
+        </div>
+        </div>
+        <div class="schedule-guide" id="scheduleGuide" hidden>
+          <div class="schedule-guide-hero panel">
+            <div><span class="result-label">ИНСТРУКЦИЯ</span><h2>Как работать с графиком</h2><p>Краткое руководство для руководителя: от добавления сотрудника до готовой картинки для команды.</p></div>
+            <span class="schedule-guide-icon">?</span>
+          </div>
+          <div class="schedule-guide-grid">
+            <article class="panel schedule-guide-card"><span>01</span><div><h3>Создайте или выберите месяц</h3><p>Кнопка «Добавить следующий месяц» переносит состав команды и автоматически продолжает 2/2. Для 5/2 назначаются только будни, кроме российских праздников.</p></div></article>
+            <article class="panel schedule-guide-card"><span>02</span><div><h3>Добавьте сотрудника</h3><p>Нажмите «Добавить сотрудника», укажите ФИО, логин, должность и тип графика. Рабочие смены будут расставлены автоматически.</p></div></article>
+            <article class="panel schedule-guide-card"><span>03</span><div><h3>Измените отдельный день</h3><p>Нажмите на ячейку дня. Выберите работу, выходной, отпуск, больничный или обучение. Для работы укажите смену в формате <b>8/20</b>.</p></div></article>
+            <article class="panel schedule-guide-card"><span>04</span><div><h3>Оставьте примечание</h3><p>В редакторе ячейки заполните поле «Примечание». Такая ячейка отмечается оранжевым уголком, а текст виден при наведении.</p></div></article>
+            <article class="panel schedule-guide-card"><span>05</span><div><h3>Измените целый период</h3><p>Нажмите «Изменить период», сначала выберите должность и сотрудника, затем даты и тип занятости. Изменение применится ко всем дням диапазона.</p></div></article>
+            <article class="panel schedule-guide-card"><span>06</span><div><h3>Сегментируйте график</h3><p>Выберите должность, затем конкретного сотрудника. Дополнительно можно оставить только строки с работой, отпуском, больничным, обучением или выходными.</p></div></article>
+            <article class="panel schedule-guide-card"><span>07</span><div><h3>Измените порядок</h3><p>Зажмите значок перетаскивания слева от ФИО и переместите сотрудника. Сортировка доступна при фильтре «Все типы» и внутри одной должности.</p></div></article>
+            <article class="panel schedule-guide-card"><span>08</span><div><h3>Отредактируйте или удалите</h3><p>Карандаш меняет ФИО, логин и должность. Корзина удаляет сотрудника только из графика выбранного месяца.</p></div></article>
+            <article class="panel schedule-guide-card schedule-guide-card-wide"><span>09</span><div><h3>Подготовьте график для операторов</h3><p>Нажмите «Скачать для операторов». Система сформирует три отдельные картинки — по одной для каждой должности — с учётом выбранного фильтра занятости.</p></div></article>
+          </div>
+          <article class="panel schedule-guide-legend">
+            <h3>Обозначения</h3>
+            <div class="schedule-legend"><span><i class="legend-work"></i>Рабочая смена</span><span><i class="legend-vacation">О</i>Отпуск</span><span><i class="legend-sick">Б</i>Больничный</span><span><i class="legend-training">У</i>Обучение</span><span><i class="legend-day-off">—</i>Выходной</span><span><i class="legend-note"></i>Есть примечание</span></div>
+          </article>
+        </div>
+      </section>
+
+      <section class="tab-page employees-page" id="employeesTab" hidden>
+        <div class="service-toolbar">
+          <div><span class="result-label">СЕРВИС</span><select id="hrServiceSelect" aria-label="Выберите сервис"></select></div>
+          <button class="secondary-btn" id="addHrService">+ Добавить сервис</button>
+        </div>
+        <div class="employees-head"><div class="settings-head"><span class="result-label">ПРОЦЕСС НАЙМА</span><h2 id="hrSectionTitle">Оформления</h2><p id="hrSectionDescription">Все данные из одноимённого листа исходного документа.</p></div><button class="secondary-btn" id="toggleEmployeeRegistry">Показать реестр</button></div>
+        <nav class="hr-sheet-nav" id="hrSheetNav" aria-label="Листы документа">
+          <button data-hr-section="portrait">Портрет</button><button data-hr-section="interview_guide">Интервью</button><button data-hr-section="demand">Потребность</button><button data-hr-section="interviews">Собеседования</button><button class="active" data-hr-section="onboarding">Оформления</button><button data-hr-section="contacts">Контакты</button><button data-hr-section="funnel">Воронка</button><button data-hr-section="vacancies">Вакансии</button>
+        </nav>
+        <div id="hrDynamicPanel" hidden>
+          <form id="hrDynamicForm" class="employee-form single-form">
+            <article class="panel employee-section"><div class="employee-section-title"><span id="hrSectionNumber">01</span><div><b id="hrFormTitle">Новая запись</b><small>Заполните данные выбранного листа</small></div></div><div id="hrDynamicFields" class="employee-fields dynamic-fields"></div></article>
+            <div class="employee-actions"><span id="hrFormStatus"></span><button class="primary employee-submit" type="submit"><span>Сохранить запись</span><i>→</i></button></div>
+          </form>
+          <article class="panel employee-registry"><div class="panel-title"><span>Сохранённые записи</span><small id="hrRecordCount">0 записей</small></div><div id="hrRecordList" class="employee-list"></div></article>
+        </div>
+        <div id="funnelPanel" class="panel funnel-info" hidden><h3>Воронка рассчитывается автоматически</h3><p>Показатели «назначено», «дошло», «согласовано», «офферы», «самоотказы» и «вышедшие» формируются из данных листов «Собеседования» и «Оформления». Ручной ввод процентных показателей не требуется.</p></div>
+        <form id="employeeForm" class="employee-form" data-hr-panel="onboarding">
+          <article class="panel employee-section">
+            <div class="employee-section-title"><span>01</span><div><b>Основная информация</b><small>Кандидат, рекрутер и параметры выхода</small></div></div>
+            <div class="employee-fields">
+              <label>ФИО сотрудника <i>*</i><input name="full_name" required></label>
+              <label>Дата выхода <i>*</i><input name="start_date" type="date" required></label>
+              <label>Дата оформления<input name="registration_date" type="date"></label>
+              <label>Рекрутер<input name="recruiter"></label>
+              <label>Собеседующий<input name="interviewer"></label>
+              <label>Источник<input name="source"></label>
+              <label>Статус<select name="status"><option value="">Не выбран</option><option>готов к выходу</option><option>оформление</option><option>отказ на оффере</option><option>вышел</option></select></label>
+              <label>Трек обучения<input name="training_track"></label>
+              <label class="field-span-2">Ссылка ОКО<input name="oko_url" type="url" placeholder="https://…"></label>
+            </div>
+          </article>
+          <article class="panel employee-section">
+            <div class="employee-section-title"><span>02</span><div><b>Работа и доступы</b><small>График, команда и внутреннее оформление</small></div></div>
+            <div class="employee-fields">
+              <label>График<input name="schedule" placeholder="Например, 2/2 9-21"></label>
+              <label>Подгруппа<input name="subgroup"></label>
+              <label>Логин на Стафф<input name="staff_login"></label>
+              <label>HR-тикет<input name="hr_ticket" type="url" placeholder="https://st.yandex-team.ru/HR-…"></label>
+              <label>Вэлком-бук<input name="welcome_book"></label>
+              <label>Добавлен в чат<select name="added_to_chat"><option value="">Не указано</option><option>Да</option><option>Нет</option></select></label>
+            </div>
+          </article>
+          <article class="panel employee-section">
+            <div class="employee-section-title"><span>03</span><div><b>Оборудование и документы</b><small>Тикеты, доставка и готовность документов</small></div></div>
+            <div class="employee-fields">
+              <label>Тикет на оборудование<input name="equipment_ticket" type="url" placeholder="https://st.yandex-team.ru/HDRFS-…"></label>
+              <label>Тикет Cargo<input name="cargo_ticket" type="url" placeholder="https://st.yandex-team.ru/CARGO-…"></label>
+              <label>Доставка оборудования<input name="equipment_delivery" placeholder="Статус или дата доставки"></label>
+              <label>Документы<input name="documents"></label>
+              <label class="field-span-2">Адрес доставки оборудования<textarea name="delivery_address" rows="3"></textarea></label>
+              <label class="field-span-2">Комментарии<textarea name="comments" rows="4"></textarea></label>
+            </div>
+          </article>
+          <div class="employee-actions"><span id="employeeFormStatus"></span><button class="primary employee-submit" type="submit"><span>Добавить сотрудника</span><i>→</i></button></div>
+        </form>
+        <article class="panel employee-registry" id="employeeRegistry" hidden>
+          <div class="panel-title"><span>Добавленные сотрудники</span><small id="employeeCount">0 записей</small></div>
+          <div id="employeeList" class="employee-list"></div>
+        </article>
+      </section>
+
+      <section class="tab-page settings-page" id="settingsTab" hidden>
+        <nav class="breadcrumbs" aria-label="Хлебные крошки"><button data-open-tool="home">Главная</button><span>›</span><button data-open-tool="forecast">Прогноз нагрузки</button><span>›</span><b>Настройки и данные</b></nav>
+        <nav class="forecast-nav" aria-label="Разделы прогноза"><button data-open-tool="forecast">Обзор прогноза</button><button class="active" data-open-tool="settings">Настройки и данные</button><button data-open-tool="methodology">Методология</button></nav>
+        <div class="settings-head"><span class="result-label">УПРАВЛЕНИЕ МОДЕЛЬЮ</span><h2>Настройки прогноза</h2><p>Измените параметры сценария или обновите исторические данные.</p></div>
+        <div class="settings-grid">
+          <article class="panel controls" id="controls">
+            <div class="panel-title"><span><i class="panel-icon">✦</i> Параметры сценария</span><button id="resetBtn" class="text-btn">Сбросить</button></div>
+            <div class="settings-fields">
+              <label class="field-wide">График команды<select id="sheet"></select></label>
+              <label>Горизонт, дней<input id="horizon" type="number" min="7" max="62" value="28"></label>
+              <label>История, недель<input id="lookback" type="number" min="4" max="52" value="12"></label>
+              <label class="field-wide">Резерв мощности <span id="reserveValue">15%</span><input id="reserve" type="range" min="0" max="35" value="15"></label>
+            </div>
+            <div class="divider"></div>
+            <div class="subhead">Корректировка прогноза</div>
+            <p class="hint">Известные будущие изменения, которых ещё нет в исторических данных.</p>
+            <div class="growth-grid">
+              <label>Общая очередь<div class="percent-input"><input id="sharedGrowth" type="number" value="0" step="1"><span>%</span></div></label>
+              <label>Очереди специалистов<div class="percent-input"><input id="specialistGrowth" type="number" value="0" step="1"><span>%</span></div></label>
+              <label>Очереди экспертов<div class="percent-input"><input id="expertGrowth" type="number" value="0" step="1"><span>%</span></div></label>
+            </div>
+            <label class="switch-row"><span><b>Учитывать вакансии</b><small>Считать открытые вакансии уже нанятыми сотрудниками</small></span><input id="vacancies" type="checkbox"></label>
+            <button id="runBtn" class="primary"><span>Рассчитать и открыть прогноз</span><i>→</i></button>
+          </article>
+
+          <article class="panel data-settings">
+            <div class="panel-title"><span><i class="panel-icon">⇧</i> Данные модели</span></div>
+            <div class="data-illustration"><span>TSV</span></div>
+            <h3>Обновить историю нагрузки</h3>
+            <p>Загрузите свежую выгрузку. Модель проверит структуру, сохранит резервную копию и перестроит прогноз.</p>
+            <div class="history-upload">
+              <div class="upload-copy"><span class="upload-icon">⇧</span><div><b>Файл нагрузки</b><small id="historyFileLabel">TSV, TXT или CSV до 1 ГБ</small></div></div>
+              <input id="historyFile" type="file" accept=".tsv,.txt,.csv" hidden>
+              <button id="uploadHistoryBtn" class="upload-btn">Выбрать файл</button>
+              <div id="uploadStatus" class="upload-status" hidden></div>
+            </div>
+            <div class="format-note"><b>Обязательные колонки</b><span>Очередь · Начало периода · Канал</span></div>
+            <div class="data-divider"></div>
+            <h3>Обновить справочник очередей</h3>
+            <p>Загрузите XLSX со списком очередей, подлиниями и признаками участия в прогнозе.</p>
+            <div class="history-upload queue-upload">
+              <div class="upload-copy"><span class="upload-icon">≡</span><div><b>Справочник очередей</b><small id="queueFileLabel">XLSX · лист Chart data</small></div></div>
+              <input id="queueFile" type="file" accept=".xlsx" hidden>
+              <button id="uploadQueuesBtn" class="upload-btn">Выбрать XLSX</button>
+              <div id="queueUploadStatus" class="upload-status" hidden></div>
+            </div>
+            <div class="format-note"><b>Обязательные колонки</b><span>Очередь · Подлиния · Техническая очередь · Архивная очередь · Учитываем в прогнозе</span></div>
+          </article>
+
+          <article class="panel role-settings">
+            <div class="panel-title"><span><i class="panel-icon">◎</i> Должности и компетенции</span><button id="addPositionBtn" class="text-btn">+ Добавить должность</button></div>
+            <p class="role-intro">Настройте должности, которые участвуют в прогнозе, их часовую ёмкость и группы обслуживаемых очередей.</p>
+            <div class="operation-hours">
+              <div><b>Время работы поддержки</b><small>Учитываются только часы внутри этого интервала. Одинаковое время означает работу 24/7.</small></div>
+              <label>Начало<select id="operationStart"></select></label>
+              <label>Окончание<select id="operationEnd"></select></label>
+            </div>
+            <div id="positionsEditor" class="positions-editor"></div>
+            <div class="role-actions"><span id="configStatus" class="config-status"></span><button id="savePositionsBtn" class="primary"><span>Сохранить должности</span><i>✓</i></button></div>
+          </article>
+        </div>
+      </section>
+
+      <section class="tab-page methodology-page" id="methodologyTab" hidden>
+        <nav class="breadcrumbs" aria-label="Хлебные крошки"><button data-open-tool="home">Главная</button><span>›</span><button data-open-tool="forecast">Прогноз нагрузки</button><span>›</span><b>Методология</b></nav>
+        <nav class="forecast-nav" aria-label="Разделы прогноза"><button data-open-tool="forecast">Обзор прогноза</button><button data-open-tool="settings">Настройки и данные</button><button class="active" data-open-tool="methodology">Методология</button></nav>
+        <div class="settings-head"><span class="result-label">СПРАВОЧНИК МОДЕЛИ</span><h2>Методология и термины</h2><p>Как исходные данные превращаются в прогноз нагрузки и рекомендацию по найму.</p></div>
+
+        <div class="method-data-strip">
+          <div><small>Доступная история</small><b id="methodDataRange">—</b></div>
+          <div><small>Учтено периодов</small><b id="methodPeriods">—</b></div>
+          <div><small>Часовой пояс</small><b>Москва · UTC+3</b></div>
+          <div><small>Гранулярность</small><b>1 час</b></div>
+        </div>
+
+        <article class="panel quality-panel">
+          <div class="panel-title"><span>Качество модели на известных данных</span><small id="backtestPeriod">—</small></div>
+          <div class="quality-grid">
+            <div><small>Ошибка дневного объёма</small><b id="backtestDailyWape">—</b><span>Цель — менее 10%</span></div>
+            <div><small>Ошибка распределения по часам</small><b id="backtestDistribution">—</b><span>Какая доля попала не в те часы</span></div>
+            <div><small>Ошибка «час × группа»</small><b id="backtestWape">—</b><span>Самая строгая проверка</span></div>
+            <div><small>Систематическое смещение</small><b id="backtestBias">—</b><span id="backtestBiasNote">—</span></div>
+          </div>
+          <p class="quality-note" id="backtestExplanation">—</p>
+          <div class="quality-windows" id="backtestWindows"></div>
+        </article>
+
+        <article class="panel method-section">
+          <div class="method-title"><span class="method-number">01</span><div><h3>Как строится прогноз</h3><p>Расчёт выполняется отдельно для каждого часа и группы очередей.</p></div></div>
+          <div class="pipeline">
+            <div class="pipeline-step"><span>1</span><b>Очистка</b><p>Исключаются технические, архивные и отключённые от прогноза очереди.</p></div>
+            <div class="pipeline-arrow">→</div>
+            <div class="pipeline-step"><span>2</span><b>Профиль</b><p>Средняя нагрузка для одинакового дня недели и часа за выбранную глубину истории.</p></div>
+            <div class="pipeline-arrow">→</div>
+            <div class="pipeline-step"><span>3</span><b>Стабилизация</b><p>Краткосрочные скачки не переносятся в будущее автоматически, если они ухудшают ретропроверку.</p></div>
+            <div class="pipeline-arrow">→</div>
+            <div class="pipeline-step"><span>4</span><b>Сценарий</b><p>Применяется ручная корректировка роста или снижения нагрузки.</p></div>
+          </div>
+          <div class="formula"><span>Прогноз часа</span><b>= средний профиль × (1 + ручная корректировка / 100)</b></div>
+          <p class="method-note">Ручная корректировка применяется только к будущему сценарию и не участвует в оценке исторической точности.</p>
+        </article>
+
+        <div class="method-columns">
+          <article class="panel method-section">
+            <div class="method-title"><span class="method-number">02</span><div><h3>Распределение очередей</h3><p>Компетенции учитываются последовательно.</p></div></div>
+            <div class="allocation-list">
+              <div><i class="role-dot expert"></i><span><b>1. Группы с ограниченным набором исполнителей</b><small>В первую очередь используются должности, которым назначена соответствующая группа очередей.</small></span></div>
+              <div><i class="role-dot specialist"></i><span><b>2. Группы с пересекающимися компетенциями</b><small>Нагрузка распределяется между всеми подходящими должностями с учётом оставшейся мощности.</small></span></div>
+              <div><i class="role-dot junior"></i><span><b>3. Остальные доступные группы</b><small>Для покрытия используется оставшаяся мощность должностей, допущенных к этим очередям.</small></span></div>
+            </div>
+            <p class="method-note">Для ночной смены используется отдельный набор компетенций. Порядок должностей в настройках определяет приоритет распределения внутри одной группы.</p>
+          </article>
+
+          <article class="panel method-section">
+            <div class="method-title"><span class="method-number">03</span><div><h3>Мощность команды</h3><p>Сколько периодов может закрыть график.</p></div></div>
+            <div class="capacity-cards" id="methodCapacityCards"></div>
+            <div class="formula compact"><span>Доступная мощность</span><b>= сотрудники в смене × норматив × (1 − резерв / 100)</b></div>
+            <p class="method-note">Резерв оставляет запас на перерывы, обучение, встречи и непредвиденную нагрузку. Вакансии учитываются только при включённой настройке.</p>
+          </article>
+        </div>
+
+        <article class="panel method-section">
+          <div class="method-title"><span class="method-number">04</span><div><h3>Словарь показателей</h3><p>Что означают метрики на вкладке прогноза.</p></div></div>
+          <div class="terms-grid">
+            <div class="term"><b>Период</b><p>Одна строка исходной выгрузки нагрузки. Это базовая единица спроса модели.</p></div>
+            <div class="term"><b>Нагрузка</b><p>Ожидаемое количество периодов за выбранный час, день или весь горизонт.</p></div>
+            <div class="term"><b>Должность</b><p>Настраиваемый тип сотрудника. Название, производительность и доступные очереди задаются пользователем и могут меняться.</p></div>
+            <div class="term"><b>Группа очередей</b><p>Набор очередей с одинаковыми правилами обслуживания. Группа не привязана к конкретному названию должности.</p></div>
+            <div class="term"><b>Компетенция</b><p>Разрешение должности обслуживать выбранную группу очередей в дневной или ночной смене.</p></div>
+            <div class="term"><b>Ёмкость должности</b><p>Количество периодов, которое один сотрудник выбранной должности способен обработать за час.</p></div>
+            <div class="term"><b>Роль в графике</b><p>Название должности в загруженном файле графика, по которому модель связывает смены с настройками.</p></div>
+            <div class="term"><b>Время работы поддержки</b><p>Интервал часов, участвующих в расчёте покрытия и найма. Поддерживаются дневной режим, работа через полночь и режим 24/7.</p></div>
+            <div class="term"><b>Дефицит</b><p>Часть прогнозной нагрузки, которую невозможно закрыть доступной мощностью графика.</p></div>
+            <div class="term"><b>Покрытие</b><p><code>(1 − дефицит / нагрузка) × 100%</code>. Доля спроса, обеспеченная командой.</p></div>
+            <div class="term"><b>Изменение нагрузки</b><p>Разница между прогнозом и последним сопоставимым историческим периодом.</p></div>
+            <div class="term"><b>Стабильный сезонный профиль</b><p>Средняя нагрузка для соответствующего дня недели и часа. Краткосрочный скачок не считается устойчивым трендом без подтверждения ретропроверкой.</p></div>
+            <div class="term"><b>Часы риска</b><p>Количество часов, в которых хотя бы часть нагрузки остаётся непокрытой.</p></div>
+            <div class="term"><b>Пиковый дефицит</b><p>Максимальное число непокрытых периодов в одном часе.</p></div>
+            <div class="term"><b>Критические часы</b><p>Часы горизонта, отсортированные по суммарному дефициту от большего к меньшему.</p></div>
+            <div class="term"><b>Резерв мощности</b><p>Доля нормативной производительности, намеренно не используемая в расчёте покрытия.</p></div>
+            <div class="term"><b>Горизонт</b><p>Количество будущих дней, на которое строится почасовой прогноз.</p></div>
+            <div class="term"><b>Глубина истории</b><p>Количество последних недель, используемых для профиля дня недели и часа.</p></div>
+            <div class="term"><b>Ретропроверка</b><p>Проверка модели на уже известных днях. Модель обучается только на более ранних данных, затем её прогноз сравнивается с фактом.</p></div>
+            <div class="term"><b>WAPE дневного объёма</b><p>Ошибка общего количества обращений за день. Это основной показатель для оценки цели в 10%.</p></div>
+            <div class="term"><b>Ошибка распределения по часам</b><p>Показывает, какая доля дневной нагрузки прогнозом размещена не в тех часах.</p></div>
+            <div class="term"><b>WAPE «час × группа»</b><p>Сравнивает факт и прогноз отдельно для каждого часа и группы очередей. Он выше из-за естественных колебаний малых значений.</p></div>
+            <div class="term"><b>Смещение</b><p>Показывает, склонна ли модель систематически завышать или занижать общий объём обращений.</p></div>
+          </div>
+        </article>
+
+        <div class="method-columns">
+          <article class="panel method-section">
+            <div class="method-title"><span class="method-number">05</span><div><h3>Рекомендация по найму</h3><p>Как дефицит переводится в сотрудников.</p></div></div>
+            <ol class="method-list">
+              <li>Непокрытые периоды переводятся в человеко-часы по ёмкости подходящей должности.</li>
+              <li>Человеко-часы нормализуются до одной недели горизонта.</li>
+              <li>Результат делится на 40 часов. Найм рекомендуется только при устойчивом дефиците от половины недельной ставки; меньший объём относится к перераспределению графика.</li>
+              <li>Выбирается типовой график, закрывающий наибольшую часть часов дефицита.</li>
+            </ol>
+            <p class="method-note warning">Это ориентир для кадрового решения, а не математическая оптимизация смен. Перед наймом необходимо проверить отпуска, SLA и фактическую занятость.</p>
+          </article>
+
+          <article class="panel method-section">
+            <div class="method-title"><span class="method-number">06</span><div><h3>Ограничения модели</h3><p>Что важно учитывать при интерпретации.</p></div></div>
+            <ul class="method-list">
+              <li>Модель продолжает исторический почасовой профиль и не знает о будущих запусках, акциях и авариях.</li>
+              <li>Качество результата зависит от полноты выгрузки и корректности справочника очередей.</li>
+              <li>Производительность считается постоянной внутри должности.</li>
+              <li>Не моделируются SLA, время ожидания, больничные, отпуска и индивидуальная эффективность.</li>
+              <li>Ручная корректировка должна добавляться отдельно для каждой группы очередей.</li>
+            </ul>
+          </article>
+        </div>
+      </section>
+    </main>
+  </div>
+  <script src="/static/app.js?v=20260811-36"></script>
+</body>
+</html>
