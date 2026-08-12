@@ -20,6 +20,7 @@ from .loaders import (
     load_schedule,
     shifts_to_hourly,
     Shift,
+    QueueRule,
 )
 from .model import (
     ForecastParameters,
@@ -62,13 +63,48 @@ class ForecastService:
 
     def _load_history(self):
         if self._history is None:
-            raw_history, self._queue_rules = load_or_build_history(
-                self.workload_path,
-                self.queue_path,
-                self.cache_path,
-            )
+            snapshot = self.database.document("history_snapshot", None)
+            if isinstance(snapshot, dict) and isinstance(snapshot.get("history"), dict):
+                raw_history = snapshot["history"]
+                self._queue_rules = self._deserialize_queue_rules(snapshot.get("queue_rules", {}))
+            else:
+                raw_history, self._queue_rules = load_or_build_history(
+                    self.workload_path,
+                    self.queue_path,
+                    self.cache_path,
+                )
+                self._save_history_snapshot(raw_history, self._queue_rules)
             self._history = self._exclude_incomplete_tail(raw_history)
         return self._history
+
+    @staticmethod
+    def _deserialize_queue_rules(items: dict[str, object]) -> dict[str, QueueRule]:
+        rules: dict[str, QueueRule] = {}
+        for name, item in items.items():
+            if not isinstance(item, dict):
+                continue
+            active_from = item.get("active_from")
+            rules[name] = QueueRule(
+                name=str(item.get("name") or name),
+                subline=int(item.get("subline") or 0),
+                active_from=dt.date.fromisoformat(active_from) if active_from else None,
+                group=str(item.get("group") or "specialist"),
+            )
+        return rules
+
+    def _save_history_snapshot(self, history: dict[str, object], rules: dict[str, QueueRule]):
+        self.database.save_document("history_snapshot", {
+            "history": history,
+            "queue_rules": {
+                name: {
+                    "name": rule.name,
+                    "subline": rule.subline,
+                    "active_from": rule.active_from.isoformat() if rule.active_from else None,
+                    "group": rule.group,
+                }
+                for name, rule in rules.items()
+            },
+        })
 
     @staticmethod
     def _exclude_incomplete_tail(history: dict[str, object]) -> dict[str, object]:
@@ -123,7 +159,14 @@ class ForecastService:
         """Drop in-memory data and rebuild history from the current workload file."""
         self._history = None
         self._queue_rules = None
-        return self._load_history()
+        raw_history, self._queue_rules = load_or_build_history(
+            self.workload_path,
+            self.queue_path,
+            self.cache_path,
+        )
+        self._save_history_snapshot(raw_history, self._queue_rules)
+        self._history = self._exclude_incomplete_tail(raw_history)
+        return self._history
 
     def metadata(self) -> dict[str, object]:
         history = self._load_history()

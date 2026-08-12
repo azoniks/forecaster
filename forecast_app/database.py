@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import sqlite3
 from pathlib import Path
 
@@ -11,6 +12,9 @@ class AppDatabase:
     def __init__(self, path: Path):
         self.path = path
         path.parent.mkdir(parents=True, exist_ok=True)
+        seed_path = path.with_name(f"{path.stem}.seed{path.suffix}")
+        if not path.exists() and seed_path.exists():
+            shutil.copy2(seed_path, path)
         with self.connect() as db:
             db.executescript("""
                 PRAGMA journal_mode=WAL;
