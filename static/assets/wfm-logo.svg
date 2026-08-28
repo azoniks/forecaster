@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="360" viewBox="0 0 1200 360" role="img" aria-label="WFM logo">
+  <defs>
+    <linearGradient id="g" x1="62" y1="70" x2="302" y2="294" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#32D9D1"/>
+      <stop offset="1" stop-color="#3978FF"/>
+    </linearGradient>
+  </defs>
+  <rect x="36" y="36" width="288" height="288" rx="72" fill="#0B1426"/>
+  <path d="M67 107l43 151c4 15 25 18 35 6l35-45 35 45c10 12 31 9 35-6l43-151h-48l-27 101-38-50-38 50-27-101H67z" fill="url(#g)"/>
+  <circle cx="180" cy="117" r="13" fill="#EAFBFF"/>
+  <text x="375" y="225" fill="#0B1426" font-family="Inter, Arial, sans-serif" font-size="148" font-weight="800" letter-spacing="7">WFM</text>
+  <rect x="380" y="252" width="486" height="10" rx="5" fill="url(#g)"/>
+</svg>
