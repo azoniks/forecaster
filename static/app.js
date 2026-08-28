@@ -101,11 +101,17 @@ async function refreshVacationCapacity(){
     renderVacationCapacity();$('vacationCapacityLoading').hidden=true;$('vacationCapacityContent').hidden=false;
   }catch(error){$('vacationCapacityLoading').innerHTML=`<div class="error">${escapeHtml(error.message)}</div>`}
 }
+async function refreshScheduleCalculations(){
+  if(!scheduleData)return;
+  const forecastSheet=$('sheet');
+  if([...forecastSheet.options].some(option=>option.value===scheduleData.sheet))forecastSheet.value=scheduleData.sheet;
+  await Promise.all([refreshVacationCapacity(),analyze()]);
+}
 function renderVacationCapacity(){
   if(!vacationCapacityData)return;
   const labels={peak:'Пик',normal:'Обычная нагрузка',calm:'Спокойный месяц'};
   $('vacationSeasonCards').innerHTML=vacationCapacityData.roles.map(item=>`<div class="vacation-season ${item.season_level}"><span>${escapeHtml(item.name)}</span><b>${labels[item.season_level]}</b><small>индекс ${fmt(item.season_index)}% · лимит ${item.absence_percent}% (${item.absence_limit} чел.)</small></div>`).join('');
-  const activityLabels={vacation:'отпуск',sick:'больничный',training:'обучение'},roleNames=vacationCapacityData.roles.map(item=>item.name);
+  const activityLabels={day_off:'выходной/отгул',vacation:'отпуск',sick:'больничный',training:'обучение'},roleNames=vacationCapacityData.roles.map(item=>item.name);
   $('vacationCapacityHead').innerHTML=`<tr><th class="vacation-date-sticky">Дата</th>${roleNames.map(name=>`<th>${escapeHtml(name)}</th>`).join('')}</tr>`;
   $('vacationCapacityBody').innerHTML=vacationCapacityData.dates.map(dateValue=>{const dateObject=new Date(`${dateValue}T00:00:00`),weekend=[0,6].includes(dateObject.getDay());const cells=roleNames.map(name=>{const item=vacationCapacityData.rows.find(row=>row.date===dateValue&&row.position_name===name);if(!item)return'<td>—</td>';const absences=item.absences.map(value=>`${escapeHtml(value.name)} — ${activityLabels[value.activity]}`).join('<br>');const subbotnik=item.vacation_subbotnik;const status=item.available>0?`Можно ещё: ${item.available}`:item.policy_available===0?'Лимит исчерпан':'Нужен субботник';return `<td class="vacation-month-cell ${subbotnik?'critical':item.available?'available':'full'}"><div class="vacation-cell-head"><strong>${status}</strong><span>${item.absent} из ${item.absence_limit} отсутствуют</span></div>${absences?`<small class="vacation-absence-list">${absences}</small>`:''}${subbotnik?`<div class="vacation-subbotnik"><b>Субботник: 1 чел.</b><span>${subbotnik.shift}</span><small>для ещё одного отпуска</small></div>`:''}</td>`}).join('');return `<tr class="${weekend?'vacation-weekend':''}"><td class="vacation-date-sticky"><b>${shortDate(dateValue)}</b><small>${dateObject.toLocaleDateString('ru-RU',{weekday:'short'})}</small></td>${cells}</tr>`}).join('');
 }
@@ -120,7 +126,7 @@ async function createScheduleMonth(){
     meta=await fetch('/api/meta').then(check);
     $('sheet').innerHTML=meta.schedule_sheets.map(s=>`<option ${s===meta.default_schedule_sheet?'selected':''}>${s}</option>`).join('');
     $('scheduleSheet').innerHTML=meta.schedule_sheets.map(s=>`<option>${escapeHtml(s)}</option>`).join('');$('scheduleSheet').value=scheduleData.sheet;
-    renderSchedule();showScheduleStatus(`График «${scheduleData.sheet}» создан автоматически`,'success');
+    renderSchedule();await refreshScheduleCalculations();showScheduleStatus(`График «${scheduleData.sheet}» создан, расчёты обновлены`,'success');
   }catch(error){showScheduleStatus(error.message,'failure')}finally{button.disabled=false}
 }
 function renderSchedule(){
@@ -220,7 +226,7 @@ function renderManagerSchedule(){
   const dates=scheduleData.dates;
   $('scheduleHead').innerHTML=`<tr><th class="employee-sticky">Сотрудник</th><th class="role-sticky">Должность</th>${dates.map(d=>`<th class="${[0,6].includes(new Date(`${d}T00:00:00`).getDay())?'weekend':''}"><b>${new Date(`${d}T00:00:00`).toLocaleDateString('ru-RU',{day:'2-digit'})}</b><small>${new Date(`${d}T00:00:00`).toLocaleDateString('ru-RU',{weekday:'short'})}</small></th>`).join('')}<th>Часы</th></tr>`;
   let previousRole='';const rows=[];
-  const labels={vacation:'О',sick:'Б',training:'У'},titles={vacation:'Отпуск',sick:'Больничный',training:'Обучение'};
+  const labels={vacation:'О',sick:'Б',training:'У',day_off:'В'},titles={vacation:'Отпуск',sick:'Больничный',training:'Обучение',day_off:'Выходной/отгул'};
   filteredScheduleEmployees().forEach(employee=>{
     const pattern=employeeSchedulePattern(employee),palette=schedulePalette(pattern),style=`--schedule-color:${palette.accent};--schedule-soft:${palette.soft}`;
     if(employee.role!==previousRole){previousRole=employee.role;rows.push(`<tr class="role-group-row ${scheduleRoleClass(employee.role)}" style="${style}"><td class="employee-sticky"><div class="role-group-label"><span></span><b>${escapeHtml(employee.role)}</b></div></td><td class="role-sticky"></td><td class="role-group-fill" colspan="${dates.length+1}"></td></tr>`)}
@@ -254,7 +260,7 @@ async function deleteScheduleEmployee(employeeId,name){
   const deletionDate=window.prompt(`С какой даты убрать смены «${name}»?\nИстория до этой даты сохранится. Формат: ГГГГ-ММ-ДД`,suggested||'');if(!deletionDate)return;
   if(!/^\d{4}-\d{2}-\d{2}$/.test(deletionDate)){showScheduleStatus('Укажите дату в формате ГГГГ-ММ-ДД','failure');return}
   if(!window.confirm(`Убрать смены «${name}» с ${deletionDate} и удалить его из будущих месяцев?`))return;
-  try{const result=await fetch('/api/schedule-delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sheet:scheduleData.sheet,employee_id:employeeId,deletion_date:deletionDate})}).then(check);scheduleData=result.schedule;renderSchedule();showScheduleStatus(`Смены убраны с ${deletionDate}, история сохранена`,'success')}catch(error){showScheduleStatus(error.message,'failure')}
+  try{const result=await fetch('/api/schedule-delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sheet:scheduleData.sheet,employee_id:employeeId,deletion_date:deletionDate})}).then(check);scheduleData=result.schedule;renderSchedule();await refreshScheduleCalculations();showScheduleStatus(`Смены убраны с ${deletionDate}, расчёты обновлены`,'success')}catch(error){showScheduleStatus(error.message,'failure')}
 }
 function showScheduleEditEmployee(employeeId){
   const employee=scheduleData.employees.find(item=>item.id===employeeId);if(!employee)return;
@@ -264,7 +270,7 @@ function showScheduleEditEmployee(employeeId){
 }
 async function submitScheduleEditEmployee(event){
   event.preventDefault();const form=event.currentTarget,status=$('scheduleEditEmployeeFormStatus'),button=form.querySelector('[type=submit]');button.disabled=true;status.textContent='Сохраняем…';
-  try{const result=await fetch('/api/schedule-employee-update',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...Object.fromEntries(new FormData(form).entries()),sheet:scheduleData.sheet})}).then(check);scheduleData=result.schedule;form.hidden=true;status.textContent='';renderSchedule();showScheduleStatus('Сотрудник обновлён','success')}catch(error){status.className='failure';status.textContent=error.message}finally{button.disabled=false}
+  try{const result=await fetch('/api/schedule-employee-update',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...Object.fromEntries(new FormData(form).entries()),sheet:scheduleData.sheet})}).then(check);scheduleData=result.schedule;form.hidden=true;status.textContent='';renderSchedule();await refreshScheduleCalculations();showScheduleStatus('Сотрудник и расчёты обновлены','success')}catch(error){status.className='failure';status.textContent=error.message}finally{button.disabled=false}
 }
 function scheduleRoleClass(role){const value=String(role).toLowerCase();if(value.includes('младш'))return'role-junior';if(value.includes('эксперт'))return'role-expert';return'role-specialist'}
 function showScheduleEmployeeForm(){
@@ -272,7 +278,7 @@ function showScheduleEmployeeForm(){
 }
 async function submitScheduleEmployee(event){
   event.preventDefault();const form=event.currentTarget,status=$('scheduleEmployeeFormStatus'),button=form.querySelector('[type=submit]');button.disabled=true;status.textContent='Сохраняем…';
-  try{const result=await fetch('/api/schedule-employees',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...Object.fromEntries(new FormData(form).entries()),sheet:$('scheduleSheet').value})}).then(check);scheduleData=result.schedule;form.reset();form.hidden=true;status.textContent='';renderSchedule();showScheduleStatus('Сотрудник добавлен','success')}
+  try{const result=await fetch('/api/schedule-employees',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...Object.fromEntries(new FormData(form).entries()),sheet:$('scheduleSheet').value})}).then(check);scheduleData=result.schedule;form.reset();form.hidden=true;status.textContent='';renderSchedule();await refreshScheduleCalculations();showScheduleStatus('Сотрудник добавлен, расчёты обновлены','success')}
   catch(e){status.className='failure';status.textContent=e.message}finally{button.disabled=false}
 }
 function showBulkScheduleForm(){
@@ -283,7 +289,7 @@ function showBulkScheduleForm(){
 function toggleBulkShift(){$('bulkScheduleShiftWrap').hidden=$('bulkScheduleActivity').value!=='work'}
 async function submitBulkSchedule(event){
   event.preventDefault();const form=event.currentTarget,status=$('scheduleBulkFormStatus'),button=form.querySelector('[type=submit]');button.disabled=true;status.textContent='Применяем…';
-  try{const result=await fetch('/api/schedule-bulk',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...Object.fromEntries(new FormData(form).entries()),sheet:scheduleData.sheet})}).then(check);scheduleData=result.schedule;form.hidden=true;status.textContent='';renderSchedule();refreshVacationCapacity();showScheduleStatus('Период обновлён','success')}
+  try{const result=await fetch('/api/schedule-bulk',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...Object.fromEntries(new FormData(form).entries()),sheet:scheduleData.sheet})}).then(check);scheduleData=result.schedule;form.hidden=true;status.textContent='';renderSchedule();await refreshScheduleCalculations();showScheduleStatus('Период и расчёты обновлены','success')}
   catch(e){status.className='failure';status.textContent=e.message}finally{button.disabled=false}
 }
 async function editShift(cell){
@@ -292,7 +298,7 @@ async function editShift(cell){
   cell.innerHTML=`<div class="shift-popover"><select><option value="work">Работа</option><option value="day_off">Выходной</option><option value="vacation">Отпуск</option><option value="sick">Больничный</option><option value="training">Обучение</option></select><input value="${escapeHtml(shift)}" placeholder="8/20"><textarea maxlength="500" placeholder="Примечание к этому дню">${escapeHtml(note)}</textarea><div><button type="button" data-save>Сохранить</button><button type="button" data-cancel>×</button></div></div>`;
   const editor=cell.querySelector('.shift-popover'),select=editor.querySelector('select'),input=editor.querySelector('input'),noteInput=editor.querySelector('textarea');select.value=activity;const toggle=()=>input.hidden=select.value!=='work';toggle();select.addEventListener('change',toggle);
   editor.querySelector('[data-cancel]').addEventListener('click',e=>{e.stopPropagation();cell.innerHTML=previous});
-  editor.querySelector('[data-save]').addEventListener('click',async e=>{e.stopPropagation();cell.textContent='…';try{const result=await fetch('/api/schedule',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sheet:scheduleData.sheet,employee_id:cell.dataset.employee,date:cell.dataset.date,shift:input.value.trim(),activity:select.value,note:noteInput.value.trim()})}).then(check);scheduleData=result.schedule;renderSchedule();refreshVacationCapacity();showScheduleStatus('Занятость и примечание сохранены','success')}catch(error){cell.innerHTML=previous;showScheduleStatus(error.message,'failure')}});
+  editor.querySelector('[data-save]').addEventListener('click',async e=>{e.stopPropagation();cell.textContent='…';try{const result=await fetch('/api/schedule',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sheet:scheduleData.sheet,employee_id:cell.dataset.employee,date:cell.dataset.date,shift:input.value.trim(),activity:select.value,note:noteInput.value.trim()})}).then(check);scheduleData=result.schedule;renderSchedule();await refreshScheduleCalculations();showScheduleStatus('Занятость сохранена, расчёты обновлены','success')}catch(error){cell.innerHTML=previous;showScheduleStatus(error.message,'failure')}});
 }
 function showScheduleStatus(message,type){const status=$('scheduleStatus');status.textContent=message;status.className=`schedule-status ${type}`;setTimeout(()=>status.textContent='',2500)}
 function switchScheduleSection(section){

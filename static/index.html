@@ -119,21 +119,21 @@
             </div>
             <div class="schedule-employee-actions"><span id="scheduleEmployeeFormStatus"></span><button class="primary" type="submit"><span>Добавить в график</span><i>→</i></button></div>
           </form>
-          <article class="panel vacation-capacity-panel">
-            <div class="panel-title"><span>Отпускная ёмкость</span><button type="button" class="text-btn" id="refreshVacationCapacity">Обновить расчёт</button></div>
-            <div id="vacationCapacityLoading" class="vacation-capacity-loading">Рассчитываем сезонность и доступность отпусков…</div>
-            <div id="vacationCapacityContent" hidden>
-              <div class="vacation-season-cards" id="vacationSeasonCards"></div>
-              <p class="vacation-capacity-note">В таблице показан весь месяц. Учитываются отпуска, больничные, обучения и фактические смены. Критические даты требуют субботника для согласования дополнительного отпуска.</p>
-              <div class="table-wrap vacation-month-wrap"><table class="vacation-table"><thead id="vacationCapacityHead"></thead><tbody id="vacationCapacityBody"></tbody></table></div>
-            </div>
-          </article>
           <div class="schedule-role-summary" id="scheduleRoleSummary"></div>
           <article class="panel schedule-panel" id="managerSchedule">
             <div class="panel-title"><span>Смены и занятость сотрудников</span><small>Нажмите на ячейку, чтобы назначить смену, отпуск, больничный или обучение</small></div>
             <div class="schedule-pattern-legend" id="schedulePatternLegend" aria-label="Цвета графиков"></div>
             <div class="schedule-legend" aria-label="Обозначения графика"><span><i class="legend-vacation">О</i>Отпуск</span><span><i class="legend-sick">Б</i>Больничный</span><span><i class="legend-training">У</i>Обучение</span><span><i class="legend-day-off">—</i>Выходной</span></div>
             <div class="schedule-table-wrap"><table class="schedule-table"><thead id="scheduleHead"></thead><tbody id="scheduleBody"></tbody></table></div>
+          </article>
+          <article class="panel vacation-capacity-panel">
+            <div class="panel-title"><span>Возможность отсутствий</span><button type="button" class="text-btn" id="refreshVacationCapacity">Обновить расчёт</button></div>
+            <div id="vacationCapacityLoading" class="vacation-capacity-loading">Рассчитываем сезонность и доступность отсутствий…</div>
+            <div id="vacationCapacityContent" hidden>
+              <div class="vacation-season-cards" id="vacationSeasonCards"></div>
+              <p class="vacation-capacity-note">В таблице показан весь месяц. Учитываются выходные/отгулы, отпуска, больничные, обучения и фактические смены. Критические даты требуют подмены для согласования ещё одного отсутствия.</p>
+              <div class="table-wrap vacation-month-wrap"><table class="vacation-table"><thead id="vacationCapacityHead"></thead><tbody id="vacationCapacityBody"></tbody></table></div>
+            </div>
           </article>
           <div id="scheduleStatus" class="schedule-status"></div>
         </div>

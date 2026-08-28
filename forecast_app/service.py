@@ -439,7 +439,7 @@ class ForecastService:
         employee_by_id = {str(item["id"]): item for item in employees if not item.get("is_vacancy")}
         absences: dict[tuple[str, str], list[dict[str, str]]] = defaultdict(list)
         for cell in cells:
-            if cell.get("activity") not in {"vacation", "sick", "training"}:
+            if cell.get("activity") not in {"day_off", "vacation", "sick", "training"}:
                 continue
             employee = employee_by_id.get(str(cell["employee_id"]))
             if not employee:
@@ -497,7 +497,7 @@ class ForecastService:
             "sheet": sheet_name, "dates": dates_text, "roles": role_meta, "rows": rows,
             "subbotniks": subbotniks,
             "season_rule": "Пик: нагрузка должности минимум на 15% выше средней за год",
-            "absence_types": ["vacation", "sick", "training"],
+            "absence_types": ["day_off", "vacation", "sick", "training"],
         }
 
     @staticmethod
