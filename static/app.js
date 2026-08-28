@@ -250,8 +250,11 @@ async function saveScheduleOrder(){
   try{const result=await fetch('/api/schedule-order',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sheet:scheduleData.sheet,employee_ids:visibleIds})}).then(check);scheduleData=result.schedule;renderSchedule();showScheduleStatus('Порядок сохранён','success')}catch(error){renderSchedule();showScheduleStatus(error.message,'failure')}
 }
 async function deleteScheduleEmployee(employeeId,name){
-  if(!window.confirm(`Удалить «${name}» из графика за ${scheduleData.sheet}?`))return;
-  try{const result=await fetch('/api/schedule-delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sheet:scheduleData.sheet,employee_id:employeeId})}).then(check);scheduleData=result.schedule;renderSchedule();showScheduleStatus('Сотрудник удалён из графика','success')}catch(error){showScheduleStatus(error.message,'failure')}
+  const dates=scheduleData.dates||[],today=new Date().toISOString().slice(0,10),suggested=dates.includes(today)?today:dates[0];
+  const deletionDate=window.prompt(`С какой даты убрать смены «${name}»?\nИстория до этой даты сохранится. Формат: ГГГГ-ММ-ДД`,suggested||'');if(!deletionDate)return;
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(deletionDate)){showScheduleStatus('Укажите дату в формате ГГГГ-ММ-ДД','failure');return}
+  if(!window.confirm(`Убрать смены «${name}» с ${deletionDate} и удалить его из будущих месяцев?`))return;
+  try{const result=await fetch('/api/schedule-delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sheet:scheduleData.sheet,employee_id:employeeId,deletion_date:deletionDate})}).then(check);scheduleData=result.schedule;renderSchedule();showScheduleStatus(`Смены убраны с ${deletionDate}, история сохранена`,'success')}catch(error){showScheduleStatus(error.message,'failure')}
 }
 function showScheduleEditEmployee(employeeId){
   const employee=scheduleData.employees.find(item=>item.id===employeeId);if(!employee)return;

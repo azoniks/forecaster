@@ -536,14 +536,29 @@ class ForecastService:
         start, end = int(start_text), int(end_text)
         if start > 23 or end > 23 or start == end:
             raise ValueError("Некорректное время смены")
-        self.database.add_schedule_employee(sheet, login, name, login, role, schedule_pattern)
         dates = [dt.date.fromisoformat(date) for date in current_schedule["dates"]]
         first_date = min(dates) if dates else None
-        for date in dates:
-            is_working = date.weekday() < 5 if cycle == "5/2" else (date - first_date).days % 4 < 2
-            if not is_working:
+        if first_date is None:
+            raise ValueError("В выбранном месяце нет дат")
+        for target_sheet in self.database.schedule_sheets():
+            target_dates_text, target_employees, _ = self.database.schedule_rows(target_sheet)
+            target_dates = [dt.date.fromisoformat(date) for date in target_dates_text]
+            if not target_dates or max(target_dates) < first_date:
                 continue
-            self.database.set_schedule_cell(sheet, login, date.isoformat(), start, end, "work")
+            if login in {str(item["id"]) for item in target_employees}:
+                if target_sheet == sheet:
+                    raise ValueError("Сотрудник с таким логином уже есть в графике")
+                continue
+            self.database.add_schedule_employee(target_sheet, login, name, login, role, schedule_pattern)
+            for date in target_dates:
+                is_working = (
+                    date.weekday() < 5 and not self._russian_holiday(date)
+                    if cycle == "5/2" else (date - first_date).days % 4 < 2
+                )
+                if is_working:
+                    self.database.set_schedule_cell(
+                        target_sheet, login, date.isoformat(), start, end, "work"
+                    )
         return self.schedule(sheet)
 
     @staticmethod
@@ -618,6 +633,9 @@ class ForecastService:
         generated_cells = []
         copied_employees = []
         for employee in employees:
+            terminated_on = str(employee.get("terminated_on") or "")
+            if terminated_on and terminated_on <= target_first.isoformat():
+                continue
             pattern_text = str(employee.get("schedule_pattern") or "")
             match = re.fullmatch(r"(5/2|2/2)\s+(\d{1,2})-(\d{1,2})", pattern_text)
             inferred, inferred_start, inferred_end, inferred_phase = self._infer_schedule_pattern(
@@ -764,7 +782,14 @@ class ForecastService:
             raise ValueError("Некорректные данные сотрудника")
         sheet = str(value.get("sheet") or "")
         employee_id = str(value.get("employee_id") or "")
-        self.database.delete_schedule_employee(sheet, employee_id)
+        try:
+            deletion_date = dt.date.fromisoformat(str(value.get("deletion_date") or ""))
+        except ValueError:
+            raise ValueError("Укажите дату удаления сотрудника") from None
+        current = self.schedule(sheet)
+        if deletion_date.isoformat() not in current["dates"]:
+            raise ValueError("Дата удаления должна быть в выбранном месяце")
+        self.database.terminate_schedule_employee(sheet, employee_id, deletion_date.isoformat())
         return self.schedule(sheet)
 
     def edit_schedule_employee(self, value: object) -> dict[str, object]:

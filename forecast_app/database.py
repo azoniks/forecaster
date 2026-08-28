@@ -38,6 +38,7 @@ class AppDatabase:
                     is_vacancy INTEGER NOT NULL DEFAULT 0,
                     schedule_pattern TEXT NOT NULL DEFAULT '',
                     sort_order INTEGER NOT NULL DEFAULT 0,
+                    terminated_on TEXT,
                     PRIMARY KEY (month, employee_id)
                 );
                 CREATE TABLE IF NOT EXISTS schedule_cells (
@@ -58,6 +59,8 @@ class AppDatabase:
             columns = {row["name"] for row in db.execute("PRAGMA table_info(schedule_employees)")}
             if "sort_order" not in columns:
                 db.execute("ALTER TABLE schedule_employees ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0")
+            if "terminated_on" not in columns:
+                db.execute("ALTER TABLE schedule_employees ADD COLUMN terminated_on TEXT")
             cell_columns = {row["name"] for row in db.execute("PRAGMA table_info(schedule_cells)")}
             if "note" not in cell_columns:
                 db.execute("ALTER TABLE schedule_cells ADD COLUMN note TEXT NOT NULL DEFAULT ''")
@@ -117,7 +120,7 @@ class AppDatabase:
                 "SELECT date FROM schedule_dates WHERE month=? ORDER BY date", (month,)
             )]
             employees = [dict(row) for row in db.execute(
-                "SELECT employee_id AS id,name,login,role,is_vacancy,schedule_pattern,sort_order "
+                "SELECT employee_id AS id,name,login,role,is_vacancy,schedule_pattern,sort_order,terminated_on "
                 "FROM schedule_employees WHERE month=? ORDER BY role,sort_order,name", (month,)
             )]
             cells = [dict(row) for row in db.execute(
@@ -137,12 +140,13 @@ class AppDatabase:
                 [(name, date) for date in dates],
             )
             db.executemany(
-                "INSERT INTO schedule_employees(month,employee_id,name,login,role,is_vacancy,schedule_pattern,sort_order) "
-                "VALUES(?,?,?,?,?,?,?,?)",
+                "INSERT INTO schedule_employees(month,employee_id,name,login,role,is_vacancy,schedule_pattern,sort_order,terminated_on) "
+                "VALUES(?,?,?,?,?,?,?,?,?)",
                 [(
                     name, item["id"], item["name"], item.get("login", ""), item["role"],
                     int(item.get("is_vacancy", False)), item.get("schedule_pattern", ""),
                     int(item.get("sort_order", 0)),
+                    item.get("terminated_on"),
                 ) for item in employees],
             )
             db.executemany(
@@ -190,6 +194,30 @@ class AppDatabase:
             if cursor.rowcount != 1:
                 raise ValueError("Сотрудник не найден в графике")
 
+    def terminate_schedule_employee(self, month: str, employee_id: str, deletion_date: str):
+        """Keep schedule history, clear the departure day onward and remove future rows."""
+        with self.connect() as db:
+            exists = db.execute(
+                "SELECT 1 FROM schedule_employees WHERE month=? AND employee_id=?",
+                (month, employee_id),
+            ).fetchone()
+            if exists is None:
+                raise ValueError("Сотрудник не найден в графике")
+            db.execute(
+                "UPDATE schedule_employees SET terminated_on=? WHERE employee_id=?",
+                (deletion_date, employee_id),
+            )
+            db.execute(
+                "DELETE FROM schedule_cells WHERE employee_id=? AND date>=?",
+                (employee_id, deletion_date),
+            )
+            db.execute(
+                "DELETE FROM schedule_employees WHERE employee_id=? AND month IN ("
+                "SELECT month FROM schedule_dates GROUP BY month HAVING MIN(date)>?"
+                ")",
+                (employee_id, deletion_date),
+            )
+
     def update_schedule_employee(
         self, month: str, employee_id: str, new_id: str,
         name: str, login: str, role: str,
@@ -210,11 +238,12 @@ class AppDatabase:
                     raise ValueError("Сотрудник с таким логином уже есть в графике")
                 db.execute(
                     "INSERT INTO schedule_employees("
-                    "month,employee_id,name,login,role,is_vacancy,schedule_pattern,sort_order"
-                    ") VALUES(?,?,?,?,?,?,?,?)",
+                    "month,employee_id,name,login,role,is_vacancy,schedule_pattern,sort_order,terminated_on"
+                    ") VALUES(?,?,?,?,?,?,?,?,?)",
                     (
                         month, new_id, name, login, role, current["is_vacancy"],
                         current["schedule_pattern"], current["sort_order"],
+                        current["terminated_on"],
                     ),
                 )
                 db.execute(
