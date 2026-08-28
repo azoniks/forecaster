@@ -54,6 +54,82 @@ class ForecastService:
         })
         self._history = None
         self._queue_rules = None
+        self._sync_current_staff_forward()
+
+    def _sync_current_staff_forward(self):
+        """Fill current active employees into already-created future months."""
+        today = dt.date.today()
+        months = []
+        for sheet in self.database.schedule_sheets():
+            dates_text, employees, cells = self.database.schedule_rows(sheet)
+            if not dates_text:
+                continue
+            dates = [dt.date.fromisoformat(value) for value in dates_text]
+            months.append({
+                "sheet": sheet, "dates": dates, "employees": employees, "cells": cells,
+                "first": min(dates), "last": max(dates),
+            })
+        months.sort(key=lambda item: item["first"])
+        current_index = next(
+            (index for index, item in enumerate(months) if item["first"] <= today <= item["last"]),
+            None,
+        )
+        if current_index is None:
+            return
+        active = {
+            str(employee["id"]): {**employee, "source": months[current_index]}
+            for employee in months[current_index]["employees"]
+            if not employee.get("is_vacancy") and not employee.get("terminated_on")
+        }
+        for target in months[current_index + 1:]:
+            existing = {str(employee["id"]): employee for employee in target["employees"]}
+            for employee_id, value in list(active.items()):
+                employee = {key: item for key, item in value.items() if key != "source"}
+                terminated_on = str(employee.get("terminated_on") or "")
+                if terminated_on and terminated_on <= target["first"].isoformat():
+                    active.pop(employee_id, None)
+                    continue
+                if employee_id in existing:
+                    continue
+                self.database.copy_schedule_employee(str(target["sheet"]), employee)
+                self._generate_employee_pattern_cells(
+                    str(target["sheet"]), employee, target["dates"], value["source"]
+                )
+            for employee in target["employees"]:
+                if not employee.get("is_vacancy") and not employee.get("terminated_on"):
+                    active[str(employee["id"])] = {**employee, "source": target}
+
+    def _generate_employee_pattern_cells(self, sheet, employee, target_dates, source):
+        pattern_text = str(employee.get("schedule_pattern") or "")
+        match = re.fullmatch(r"(5/2|2/2)\s+(\d{1,2})-(\d{1,2})", pattern_text)
+        if not match:
+            return
+        cycle, start_text, end_text = match.groups()
+        start, end = int(start_text), int(end_text)
+        phase = None
+        if cycle == "2/2":
+            employee_cells = [
+                cell for cell in source["cells"]
+                if str(cell["employee_id"]) == str(employee["id"])
+                and cell.get("activity") == "work"
+            ]
+            observed = {dt.date.fromisoformat(str(cell["date"])) for cell in employee_cells}
+            phase = min(
+                range(4),
+                key=lambda candidate: len(observed.symmetric_difference({
+                    date for date in source["dates"]
+                    if (date.toordinal() - candidate) % 4 < 2
+                })),
+            )
+        for date in target_dates:
+            working = (
+                date.weekday() < 5 and not self._russian_holiday(date)
+                if cycle == "5/2" else (date.toordinal() - int(phase)) % 4 < 2
+            )
+            if working:
+                self.database.set_schedule_cell(
+                    sheet, str(employee["id"]), date.isoformat(), start, end, "work"
+                )
 
     def _load_history(self):
         if self._history is None:

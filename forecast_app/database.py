@@ -168,6 +168,23 @@ class AppDatabase:
                 (month, employee_id, name, login, role, pattern, order),
             )
 
+    def copy_schedule_employee(self, month: str, employee: dict):
+        with self.connect() as db:
+            order = db.execute(
+                "SELECT COALESCE(MAX(sort_order),0)+1 FROM schedule_employees WHERE month=? AND role=?",
+                (month, employee["role"]),
+            ).fetchone()[0]
+            db.execute(
+                "INSERT OR IGNORE INTO schedule_employees("
+                "month,employee_id,name,login,role,is_vacancy,schedule_pattern,sort_order,terminated_on"
+                ") VALUES(?,?,?,?,?,?,?,?,?)",
+                (
+                    month, employee["id"], employee["name"], employee.get("login", ""),
+                    employee["role"], int(employee.get("is_vacancy", False)),
+                    employee.get("schedule_pattern", ""), order, employee.get("terminated_on"),
+                ),
+            )
+
     def set_schedule_cell(self, month: str, employee_id: str, date: str, start, end, activity: str, note: str = ""):
         with self.connect() as db:
             db.execute(
