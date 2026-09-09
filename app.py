@@ -88,7 +88,7 @@ class Handler(BaseHTTPRequestHandler):
                     return self.send_json({"error": "Неизвестный лист графика"}, HTTPStatus.BAD_REQUEST)
                 params = ForecastParameters(
                     horizon_days=self._integer(query, "horizon", 28, 7, 62),
-                    lookback_weeks=self._integer(query, "lookback", 8, 4, 26),
+                    lookback_weeks=self._integer(query, "lookback", 48, 4, 52),
                     reserve_percent=self._float(query, "reserve", 15, 0, 40),
                     shared_growth=self._float(query, "shared_growth", 0, -50, 100),
                     specialist_growth=self._float(query, "specialist_growth", 0, -50, 100),

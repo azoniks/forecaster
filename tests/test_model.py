@@ -1,13 +1,114 @@
 import unittest
 import datetime as dt
+import tempfile
 from collections import Counter
+from pathlib import Path
 
-from forecast_app.model import _allocate_hour, evaluate_sla_capacity
+from forecast_app.model import _allocate_hour, _historical_change, _previous_year, evaluate_sla_capacity, recommendations
 from forecast_app.config import StaffingConfig
 from forecast_app.service import ForecastService
 
 
 class AllocationTest(unittest.TestCase):
+    def test_daily_people_use_hourly_peak_reserve_and_shared_skills(self):
+        positions = [{"id": "specialist", "name": "Специалист", "capacity": 4,
+                      "groups": ["shared", "specialist"], "night_groups": []}]
+        def row(hour, shared, specialist):
+            values = {"shared": shared, "specialist": specialist, "expert": 0}
+            return {"date": "2026-09-08", "hour": hour, "demand": values, "deficit": values}
+        result = ForecastService._daily_rows([row(9, 1, 2), row(10, 5, 0)], positions, 25)[0]
+        self.assertEqual(result["missing_people"], 1)
+        self.assertEqual(result["peak_hour"], 10)
+        self.assertEqual(result["missing_by_role"], {"Специалист": 1})
+        self.assertEqual(result["peak_missing_people"], 2)
+        shared = ForecastService._daily_rows([row(9, 1, 2)], positions, 25)[0]
+        self.assertEqual(shared["missing_people"], 1)
+        night = ForecastService._daily_rows([row(1, 1, 0)], positions, 25)[0]
+        self.assertEqual(night["uncovered_groups"], ["shared"])
+        covered = ForecastService._daily_rows([row(9, 0, 0)], positions, 25)[0]
+        self.assertEqual(covered["missing_people"], 0)
+        self.assertIsNone(covered["peak_hour"])
+
+    @staticmethod
+    def _empty_month(service, name, first, days):
+        dates = [(first + dt.timedelta(days=offset)).isoformat() for offset in range(days)]
+        service.database.create_schedule_month(name, dates, [], [])
+
+    def test_added_schedule_employee_is_propagated_to_existing_future_months(self):
+        with tempfile.TemporaryDirectory() as directory:
+            service = ForecastService(Path(directory))
+            self._empty_month(service, "январь 26", dt.date(2026, 1, 1), 31)
+            self._empty_month(service, "февраль 26", dt.date(2026, 2, 1), 28)
+            service.add_schedule_employee({
+                "sheet": "январь 26", "name": "Иванов", "login": "ivanov",
+                "role": "Специалист", "schedule_pattern": "5/2 09-18",
+            })
+            january = service.schedule("январь 26")
+            february = service.schedule("февраль 26")
+            self.assertEqual([item["id"] for item in january["employees"]], ["ivanov"])
+            self.assertEqual([item["id"] for item in february["employees"]], ["ivanov"])
+            self.assertIn("2026-02-02", february["employees"][0]["shifts"])
+
+    def test_terminated_employee_keeps_history_and_loses_future_shifts(self):
+        with tempfile.TemporaryDirectory() as directory:
+            service = ForecastService(Path(directory))
+            self._empty_month(service, "январь 26", dt.date(2026, 1, 1), 31)
+            self._empty_month(service, "февраль 26", dt.date(2026, 2, 1), 28)
+            service.add_schedule_employee({
+                "sheet": "январь 26", "name": "Иванов", "login": "ivanov",
+                "role": "Специалист", "schedule_pattern": "5/2 09-18",
+            })
+            service.delete_schedule_employee({
+                "sheet": "январь 26", "employee_id": "ivanov",
+                "deletion_date": "2026-01-15",
+            })
+            january = service.schedule("январь 26")
+            february = service.schedule("февраль 26")
+            self.assertEqual([item["id"] for item in january["employees"]], ["ivanov"])
+            self.assertTrue(all(day < "2026-01-15" for day in january["employees"][0]["shifts"]))
+            self.assertEqual(february["employees"], [])
+
+    def test_terminated_employee_is_not_copied_into_new_month(self):
+        with tempfile.TemporaryDirectory() as directory:
+            service = ForecastService(Path(directory))
+            self._empty_month(service, "январь 26", dt.date(2026, 1, 1), 31)
+            service.add_schedule_employee({
+                "sheet": "январь 26", "name": "Иванов", "login": "ivanov",
+                "role": "Специалист", "schedule_pattern": "5/2 09-18",
+            })
+            service.delete_schedule_employee({
+                "sheet": "январь 26", "employee_id": "ivanov",
+                "deletion_date": "2026-01-15",
+            })
+            february = service.create_schedule_month({"source": "январь 26"})
+            self.assertEqual(february["employees"], [])
+
+    def test_hiring_plan_selects_two_two_for_weekend_deficit(self):
+        positions = [{"id": "role", "name": "Специалист", "capacity": 1, "enabled": True, "groups": ["shared"], "night_groups": ["shared"]}]
+        rows = [{"date": "2026-08-01", "hour": hour, "deficit": {"shared": 8, "specialist": 0, "expert": 0}} for hour in range(8, 20)]
+        plan = recommendations(rows, positions)[0]
+        self.assertEqual(plan["schedule_type"], "2/2")
+        self.assertEqual(plan["shift_duration_hours"], 12)
+        self.assertGreaterEqual(plan["people"], 2)
+        self.assertIn("выходные", plan["schedule_reason"])
+
+    def test_historical_change_compares_same_dates_previous_year(self):
+        history = {
+            "meta": {"last_date": "2026-06-30"},
+            "daily": [
+                ["2025-08-01", "shared", 100],
+                ["2025-08-02", "shared", 100],
+                ["2026-06-29", "shared", 1000],
+                ["2026-06-30", "shared", 1000],
+            ],
+        }
+        forecast = [
+            {"date": "2026-08-01", "demand": {"shared": 120, "specialist": 0, "expert": 0}},
+            {"date": "2026-08-02", "demand": {"shared": 120, "specialist": 0, "expert": 0}},
+        ]
+        self.assertEqual(_historical_change(history, forecast)["overall"], 20.0)
+        self.assertEqual(_previous_year(dt.date(2024, 2, 29)), dt.date(2023, 2, 28))
+
     def test_schedule_pattern_inference_and_holidays(self):
         dates = [dt.date(2026, 10, day) for day in range(1, 32)]
         cells = [
@@ -57,6 +158,21 @@ class AllocationTest(unittest.TestCase):
         }
         config = StaffingConfig.validate(value)
         self.assertEqual((config["operation_start_hour"], config["operation_end_hour"]), (6, 23))
+
+    def test_sla_settings_support_group_defaults_and_queue_overrides(self):
+        value = {
+            "positions": [{
+                "id": "role", "name": "Роль", "capacity": 1,
+                "enabled": True, "groups": ["shared"], "night_groups": ["shared"],
+            }],
+            "sla_groups": {"shared": {"target_percent": 85, "threshold_minutes": 20}},
+            "sla_queues": {"Очередь": {"target_percent": 95, "threshold_minutes": None}},
+        }
+        config = StaffingConfig.validate(value)
+        inherited = ForecastService._effective_sla(config, "shared", "Другая очередь")
+        overridden = ForecastService._effective_sla(config, "shared", "Очередь")
+        self.assertEqual(inherited, {"target_percent": 85.0, "threshold_minutes": 20.0})
+        self.assertEqual(overridden, {"target_percent": 95.0, "threshold_minutes": 20.0})
 
     def test_incomplete_trailing_day_is_excluded(self):
         history = {

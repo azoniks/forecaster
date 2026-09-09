@@ -6,6 +6,11 @@ from pathlib import Path
 
 
 GROUPS = ("shared", "specialist", "expert")
+DEFAULT_SLA = {
+    "shared": {"target_percent": 90.0, "threshold_minutes": 30},
+    "specialist": {"target_percent": 90.0, "threshold_minutes": 30},
+    "expert": {"target_percent": 90.0, "threshold_minutes": 40},
+}
 DEFAULT_POSITIONS = [
     {
         "id": "junior",
@@ -42,6 +47,8 @@ def default_config() -> dict[str, object]:
         "operation_start_hour": 0,
         "operation_end_hour": 0,
         "positions": [dict(item) for item in DEFAULT_POSITIONS],
+        "sla_groups": {group: dict(settings) for group, settings in DEFAULT_SLA.items()},
+        "sla_queues": {},
     }
 
 
@@ -118,8 +125,42 @@ class StaffingConfig:
             raise ValueError("Некорректное время работы поддержки") from None
         if not 0 <= start_hour <= 23 or not 0 <= end_hour <= 23:
             raise ValueError("Часы работы должны быть в диапазоне от 00:00 до 23:00")
+        sla_groups = {}
+        raw_groups = value.get("sla_groups", {}) if isinstance(value.get("sla_groups", {}), dict) else {}
+        for group in GROUPS:
+            raw = raw_groups.get(group, {}) if isinstance(raw_groups.get(group, {}), dict) else {}
+            sla_groups[group] = StaffingConfig._validate_sla(raw, DEFAULT_SLA[group], f"группы «{group}»")
+        raw_queues = value.get("sla_queues", {}) if isinstance(value.get("sla_queues", {}), dict) else {}
+        if len(raw_queues) > 500:
+            raise ValueError("Допустимо не более 500 настроек SLA очередей")
+        sla_queues = {}
+        for queue, raw in raw_queues.items():
+            name = str(queue).strip()[:200]
+            if name and isinstance(raw, dict):
+                sla_queues[name] = StaffingConfig._validate_sla(raw, None, f"очереди «{name}»", allow_inherit=True)
         return {
             "operation_start_hour": start_hour,
             "operation_end_hour": end_hour,
             "positions": positions,
+            "sla_groups": sla_groups,
+            "sla_queues": sla_queues,
         }
+
+    @staticmethod
+    def _validate_sla(raw: dict[str, object], default: dict[str, object] | None, label: str, allow_inherit: bool = False) -> dict[str, object]:
+        result = {}
+        for key, low, high, title in (("target_percent", 1, 100, "процент"), ("threshold_minutes", 1, 1440, "время")):
+            value = raw.get(key, None)
+            if allow_inherit and (value is None or value == ""):
+                result[key] = None
+                continue
+            if value is None and default is not None:
+                value = default[key]
+            try:
+                number = float(value)
+            except (TypeError, ValueError):
+                raise ValueError(f"Некорректный {title} SLA для {label}") from None
+            if not low <= number <= high:
+                raise ValueError(f"{title.capitalize()} SLA для {label} должен быть от {low} до {high}")
+            result[key] = round(number, 1) if key == "target_percent" else int(number)
+        return result

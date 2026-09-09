@@ -97,6 +97,7 @@ def build_history(
     channel_counts: Counter[str] = Counter()
     sla_daily: Counter[tuple[str, str, str]] = Counter()
     sla_queue_daily: Counter[tuple[str, str, str]] = Counter()
+    sla_queue_minutes: Counter[tuple[str, str, float]] = Counter()
     first_date: dt.date | None = None
     last_date: dt.date | None = None
     included = 0
@@ -132,6 +133,7 @@ def build_history(
             except ValueError:
                 assignment_minutes = None
             if assignment_minutes is not None:
+                sla_queue_minutes[(key_date, queue_name, round(assignment_minutes, 3))] += 1
                 sla_daily[(key_date, rule.group, "total")] += 1
                 sla_queue_daily[(key_date, queue_name, "total")] += 1
                 threshold = 40 if rule.group == "expert" else 30
@@ -179,6 +181,10 @@ def build_history(
             [day, queue, metric, count]
             for (day, queue, metric), count in sorted(sla_queue_daily.items())
         ],
+        "sla_queue_minutes": [
+            [day, queue, minutes, count]
+            for (day, queue, minutes), count in sorted(sla_queue_minutes.items())
+        ],
     }
 
 
@@ -189,7 +195,7 @@ def load_or_build_history(
 ) -> tuple[dict[str, object], dict[str, QueueRule]]:
     rules = load_queue_rules(queue_path)
     signature = {
-        "schema_version": 7,
+        "schema_version": 8,
         "workload_mtime": workload_path.stat().st_mtime_ns,
         "workload_size": workload_path.stat().st_size,
         "queues_mtime": queue_path.stat().st_mtime_ns,

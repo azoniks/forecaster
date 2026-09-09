@@ -137,6 +137,9 @@ class ForecastService:
             if isinstance(snapshot, dict) and isinstance(snapshot.get("history"), dict):
                 raw_history = snapshot["history"]
                 self._queue_rules = self._deserialize_queue_rules(snapshot.get("queue_rules", {}))
+                if "sla_queue_minutes" not in raw_history:
+                    raw_history, self._queue_rules = load_or_build_history(self.workload_path, self.queue_path, self.cache_path)
+                    self._save_history_snapshot(raw_history, self._queue_rules)
             else:
                 raw_history, self._queue_rules = load_or_build_history(
                     self.workload_path,
@@ -223,6 +226,7 @@ class ForecastService:
             "queue_interval_10": [row for row in history.get("queue_interval_10", []) if dt.date.fromisoformat(row[0]) <= cutoff],
             "sla_daily": [row for row in history.get("sla_daily", []) if dt.date.fromisoformat(row[0]) <= cutoff],
             "sla_queue_daily": [row for row in history.get("sla_queue_daily", []) if dt.date.fromisoformat(row[0]) <= cutoff],
+            "sla_queue_minutes": [row for row in history.get("sla_queue_minutes", []) if dt.date.fromisoformat(row[0]) <= cutoff],
         }
 
     def reload_history(self):
@@ -254,6 +258,8 @@ class ForecastService:
             "positions": positions,
             "operation_start_hour": staffing["operation_start_hour"],
             "operation_end_hour": staffing["operation_end_hour"],
+            "sla_groups": staffing["sla_groups"],
+            "sla_queues": staffing["sla_queues"],
             "queue_groups": {group: sorted(names) for group, names in queue_groups.items()},
             "rules": {
                 "junior": "Только Метрика: metrika_chats",
@@ -283,20 +289,36 @@ class ForecastService:
         hourly_staff = shifts_to_hourly(shifts, params.include_vacancies, positions)
         evaluated = evaluate_capacity(forecast, hourly_staff, params.reserve_percent, positions)
         summary = summarize(history, forecast, evaluated, trends, positions)
+        capacity_recommendations = summary["recommendations"]
         summary["backtest"] = self._backtest(history, params, start_hour, end_hour)
-        summary["queues"] = self._queue_coverage(history, evaluated, params.lookback_weeks)
+        summary["queues"] = self._queue_coverage(history, evaluated, params.lookback_weeks, staffing)
         real_people = {
             position["name"]: len({shift.login or shift.name for shift in shifts if shift.role == position["schedule_role"] and not shift.is_vacancy})
             for position in positions if position["enabled"]
         }
-        sla = self._sla_summary(history, params.lookback_weeks)
+        sla = self._sla_summary(history, params.lookback_weeks, staffing, self._queue_rules or {})
         summary["sla"] = sla
-        summary["recommendations"] = self._sla_recommendations(sla, positions, real_people)
+        sla_recommendations = self._sla_recommendations(sla, positions, real_people)
+        by_role = {item["role"]: item for item in capacity_recommendations}
+        for item in sla_recommendations:
+            capacity = by_role.get(item["role"])
+            if capacity:
+                item.update({key: capacity[key] for key in (
+                    "shift", "schedule_type", "shift_start", "shift_end",
+                    "shift_duration_hours", "peak_hours", "deficit_periods", "peak_people",
+                    "schedule_reason", "weekend_deficit_percent", "night_deficit_percent",
+                    "deficit_days_percent", "minimum_rotation_people",
+                )})
+                item["people"] = max(int(item["people"]), int(capacity["minimum_rotation_people"]))
+            else:
+                item.update({"schedule_type": "5/2", "shift_start": 9, "shift_end": 17, "shift_duration_hours": 8, "peak_hours": []})
+                item["shift"] = "5/2 · 09:00–17:00 (нет прогнозного почасового дефицита)"
+        summary["recommendations"] = sla_recommendations
         vacancies = {
             position["name"]: len({shift.name + shift.role for shift in shifts if shift.role == position["schedule_role"] and shift.is_vacancy})
             for position in positions if position["enabled"]
         }
-        daily = self._daily_rows(evaluated)
+        daily = self._daily_rows(evaluated, positions, params.reserve_percent)
         heatmap = self._hourly_heatmap(evaluated)
         critical = self._critical_hours(evaluated, positions, params.reserve_percent)
         return {
@@ -998,13 +1020,27 @@ class ForecastService:
         return self.database.save_document("staffing", config)
 
     @staticmethod
-    def _sla_summary(history: dict[str, object], lookback_weeks: int) -> dict[str, object]:
+    def _effective_sla(staffing: dict[str, object], group: str, queue: str | None = None) -> dict[str, float]:
+        base = staffing["sla_groups"][group]
+        override = staffing.get("sla_queues", {}).get(queue, {}) if queue else {}
+        return {
+            "target_percent": float(override.get("target_percent") if override.get("target_percent") is not None else base["target_percent"]),
+            "threshold_minutes": float(override.get("threshold_minutes") if override.get("threshold_minutes") is not None else base["threshold_minutes"]),
+        }
+
+    @staticmethod
+    def _sla_summary(history: dict[str, object], lookback_weeks: int, staffing: dict[str, object], queue_rules: dict[str, QueueRule]) -> dict[str, object]:
         end = dt.date.fromisoformat(history["meta"]["last_date"])
         start = end - dt.timedelta(weeks=lookback_weeks) + dt.timedelta(days=1)
         values: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
-        for day, group, metric, count in history.get("sla_daily", []):
-            if start <= dt.date.fromisoformat(day) <= end:
-                values[group][metric] += float(count)
+        for day, queue, minutes, count in history.get("sla_queue_minutes", []):
+            if not start <= dt.date.fromisoformat(day) <= end or queue not in queue_rules:
+                continue
+            group = queue_rules[queue].group
+            settings = ForecastService._effective_sla(staffing, group, queue)
+            values[group]["total"] += float(count)
+            if float(minutes) <= settings["threshold_minutes"]:
+                values[group]["within"] += float(count)
         result = {}
         overall_total = 0.0
         overall_within = 0.0
@@ -1014,21 +1050,22 @@ class ForecastService:
             overall_total += total
             overall_within += within
             rate = within / total * 100 if total else 0.0
+            settings = ForecastService._effective_sla(staffing, group)
             result[group] = {
-                "target_percent": 90.0,
-                "threshold_minutes": 40 if group == "expert" else 30,
+                "target_percent": settings["target_percent"],
+                "threshold_minutes": settings["threshold_minutes"],
                 "actual_percent": round(rate, 1),
                 "sample_size": int(total),
-                "meets_target": rate >= 90,
+                "meets_target": rate >= settings["target_percent"],
             }
         overall_rate = overall_within / overall_total * 100 if overall_total else 0.0
         return {
             "period_start": start.isoformat(),
             "period_end": end.isoformat(),
-            "target_percent": 90.0,
+            "target_percent": None,
             "actual_percent": round(overall_rate, 1),
             "sample_size": int(overall_total),
-            "meets_target": overall_rate >= 90,
+            "meets_target": all(item["meets_target"] for item in result.values()),
             "groups": result,
         }
 
@@ -1050,13 +1087,14 @@ class ForecastService:
             candidates.sort(key=lambda position: len(position.get("groups", [])))
             position = candidates[0]
             current_people = max(1, int(real_people.get(position["name"], 0)))
-            people = max(1, math.ceil(current_people * (90 / max(actual, 1) - 1)))
+            target = float(metric["target_percent"])
+            people = max(1, math.ceil(current_people * (target / max(actual, 1) - 1)))
             result.append({
                 "role": position["name"],
                 "people": people,
                 "shift": f"для достижения SLA {int(metric['threshold_minutes'])} мин",
                 "sla_current": actual,
-                "sla_target": 90.0,
+                "sla_target": target,
                 "group": group,
             })
         return result
@@ -1066,6 +1104,7 @@ class ForecastService:
         history: dict[str, object],
         evaluated: list[dict[str, object]],
         lookback_weeks: int,
+        staffing: dict[str, object],
     ) -> list[dict[str, object]]:
         """Split group demand and deficit across real queues by their historical hourly shares."""
         last_date = dt.date.fromisoformat(history["meta"]["last_date"])
@@ -1074,9 +1113,13 @@ class ForecastService:
         profiles: dict[tuple[int, int, str], dict[str, float]] = defaultdict(lambda: defaultdict(float))
         fallback: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
         queue_sla: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
-        for day, queue, metric, count in history.get("sla_queue_daily", []):
-            if dt.date.fromisoformat(day) >= lookback_start:
-                queue_sla[queue][metric] += float(count)
+        for day, queue, minutes, count in history.get("sla_queue_minutes", []):
+            if dt.date.fromisoformat(day) < lookback_start or queue not in queue_groups:
+                continue
+            settings = self._effective_sla(staffing, queue_groups[queue], queue)
+            queue_sla[queue]["total"] += float(count)
+            if float(minutes) <= settings["threshold_minutes"]:
+                queue_sla[queue]["within"] += float(count)
         for day, hour, queue, count in history.get("queue_hourly", []):
             current = dt.date.fromisoformat(day)
             if current < lookback_start or queue not in queue_groups:
@@ -1128,6 +1171,7 @@ class ForecastService:
             sla_total = queue_sla[queue]["total"]
             sla_within = queue_sla[queue]["within"]
             sla_percent = sla_within / sla_total * 100 if sla_total else 0.0
+            settings = self._effective_sla(staffing, values["group"], queue)
             result.append({
                 "name": queue,
                 "group": values["group"],
@@ -1135,8 +1179,8 @@ class ForecastService:
                 "deficit": round(deficit, 1),
                 "coverage_percent": round(sla_percent, 1),
                 "capacity_coverage_percent": round((1 - deficit / demand) * 100, 1) if demand else 100.0,
-                "sla_target_percent": 90.0,
-                "sla_threshold_minutes": 40 if values["group"] == "expert" else 30,
+                "sla_target_percent": settings["target_percent"],
+                "sla_threshold_minutes": settings["threshold_minutes"],
                 "sla_sample_size": int(sla_total),
                 "outside_sla": int(sla_total - sla_within),
                 "uncovered_hours": int(values["uncovered_hours"]),
@@ -1386,18 +1430,75 @@ class ForecastService:
         return hour >= start_hour or hour < end_hour
 
     @staticmethod
-    def _daily_rows(rows: list[dict[str, object]]) -> list[dict[str, object]]:
+    def _daily_rows(rows: list[dict[str, object]], positions=None, reserve_percent=0.0) -> list[dict[str, object]]:
         result: dict[str, dict[str, object]] = {}
+        configured = [p for p in (positions if positions is not None else default_config()["positions"])
+                      if p.get("enabled", True) and float(p["capacity"]) > 0]
+        utilization = max(0.05, 1 - reserve_percent / 100)
         for row in rows:
             item = result.setdefault(row["date"], {
                 "date": row["date"],
+                "missing_people": 0,
+                "missing_person_hours": 0.0,
+                "peak_hour": None,
+                "missing_by_role": {},
+                "peak_missing_people": 0,
+                "peak_missing_by_role": {},
+                "deficit_hours_by_role": {},
+                "deficit_by_group": {},
+                "uncovered_groups": [],
                 "demand": {"shared": 0.0, "specialist": 0.0, "expert": 0.0},
                 "deficit": {"shared": 0.0, "specialist": 0.0, "expert": 0.0},
             })
+            skills_key = "night_groups" if int(row["hour"]) >= 23 or int(row["hour"]) < 6 else "groups"
+            remaining = dict(row["deficit"])
+            people = Counter()
+            person_hours = Counter()
+            # Assign whole employees, sharing their spare capacity across skills.
+            groups = sorted(remaining, key=lambda g: sum(g in p.get(skills_key, []) for p in configured))
+            for group in groups:
+                if remaining[group] <= 1e-9:
+                    continue
+                candidates = [p for p in configured if group in p.get(skills_key, [])]
+                if not candidates:
+                    if group not in item["uncovered_groups"]:
+                        item["uncovered_groups"].append(group)
+                    continue
+                position = max(candidates, key=lambda p: float(p["capacity"]))
+                capacity = float(position["capacity"]) * utilization
+                role_name = position.get("name", position["id"])
+                person_hours[role_name] += remaining[group] / capacity
+                count = math.ceil(remaining[group] / capacity - 1e-9)
+                people[role_name] += count
+                available = count * capacity
+                for target in [group] + [g for g in groups if g != group]:
+                    if target in position.get(skills_key, []):
+                        used = min(remaining[target], available)
+                        remaining[target] -= used
+                        available -= used
+            for role_name, hours in person_hours.items():
+                item["deficit_hours_by_role"][role_name] = item["deficit_hours_by_role"].get(role_name, 0.0) + hours
+            if sum(people.values()) > item["peak_missing_people"]:
+                item["peak_missing_people"] = sum(people.values())
+                item["peak_hour"] = int(row["hour"])
+                item["peak_missing_by_role"] = dict(people)
             for group in item["demand"]:
                 item["demand"][group] += row["demand"][group]
                 item["deficit"][group] += row["deficit"][group]
+                item["deficit_by_group"][group] = item["deficit_by_group"].get(group, 0.0) + row["deficit"][group]
         for item in result.values():
+            item["missing_by_role"] = {
+                role: math.ceil(hours / 8 - 1e-9)
+                for role, hours in item["deficit_hours_by_role"].items()
+            }
+            item["missing_people"] = sum(item["missing_by_role"].values())
+            item["missing_person_hours"] = round(sum(item["deficit_hours_by_role"].values()), 1)
+            item["deficit_hours_by_role"] = {
+                role: round(hours, 1) for role, hours in item["deficit_hours_by_role"].items()
+            }
+            item["deficit_by_group"] = {
+                group: round(value, 1) for group, value in item["deficit_by_group"].items() if value > 0.05
+            }
             for field in ("demand", "deficit"):
                 item[field] = {key: round(value, 1) for key, value in item[field].items()}
         return list(result.values())

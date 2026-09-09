@@ -10,7 +10,7 @@
   <link rel="shortcut icon" href="/static/assets/favicon.ico">
   <link rel="apple-touch-icon" href="/static/assets/wfm-favicon-512.png">
   <script>document.documentElement.dataset.initialTool=new URLSearchParams(location.search).get('tool')||'home'</script>
-  <link rel="stylesheet" href="/static/styles.css?v=20260828-22">
+  <link rel="stylesheet" href="/static/styles.css?v=20260908-41">
 </head>
 <body>
   <div class="mobile-overlay" id="mobileOverlay"></div>
@@ -52,23 +52,21 @@
           <div class="kpis">
             <article class="kpi"><span class="kpi-icon trend">↗</span><div><small>Изменение количества обращений</small><strong id="changeKpi">—</strong><em id="changeKpiNote">сравниваем периоды…</em></div></article>
             <article class="kpi"><span class="kpi-icon shield">◇</span><div><small>Фактическое соблюдение SLA</small><strong id="coverageKpi">—</strong><em id="coverageKpiNote">проверяем долю обращений в целевом времени…</em></div></article>
-            <article class="kpi"><span class="kpi-icon alert">!</span><div><small>Группы ниже целевого SLA 90%</small><strong id="deficitKpi">—</strong><em id="deficitKpiNote">проверяем фактическое ожидание…</em></div></article>
-            <article class="kpi accent"><span class="kpi-icon people">+</span><div><small>Рекомендация</small><strong id="hireKpi">—</strong><em>дополнительных сотрудников</em></div></article>
+            <article class="kpi"><span class="kpi-icon alert">!</span><div><small>Группы ниже целевого SLA</small><strong id="deficitKpi">—</strong><em id="deficitKpiNote">проверяем фактическое ожидание…</em></div></article>
+            <article class="kpi accent recommendation-kpi" id="recommendationKpi" role="button" tabindex="0" aria-haspopup="dialog"><span class="kpi-icon people">+</span><div><small>Рекомендация</small><strong id="hireKpi">—</strong><em>нажмите, чтобы посмотреть план найма</em></div></article>
           </div>
 
-          <div class="section-head"><div><h2>Фактическое соблюдение SLA по очередям</h2><p>Доля периодов, назначенных не позднее 30 минут, а для экспертных очередей — не позднее 40 минут. Цель — 90%.</p></div></div>
+          <div class="section-head queue-section-head"><div><h2>Фактическое соблюдение SLA по очередям</h2><p>Доля обращений, назначенных в пределах настроенного для группы или очереди времени.</p></div><label class="queue-sort">Сортировка<select id="queueSort"><option value="volume">По объёму обращений</option><option value="coverage">По качеству покрытия</option></select></label></div>
           <div id="groupCards" class="group-grid"></div>
 
-          <div class="split">
-            <article class="panel chart-panel"><div class="panel-title"><span>Нагрузка и дефицит по дням</span><small id="chartDates"></small></div><div id="dailyChart" class="chart"></div><div class="legend"><span class="demand-dot">Нагрузка</span><span class="deficit-dot">Дефицит</span></div></article>
-            <article class="panel recommendations"><div class="panel-title"><span>Что делать</span></div><div id="recommendations"></div></article>
+          <div class="split dashboard-single">
+            <article class="panel chart-panel"><div class="panel-title"><span>Сколько людей не хватает по дням</span><small id="chartDates"></small></div><p class="hint">Столбец показывает сотрудников, необходимых для закрытия дневного объёма за 8-часовую смену. Наведите на день, чтобы увидеть должности и исходные значения расчёта.</p><div id="dailyChart" class="chart people-chart"></div><div class="legend"><span class="deficit-dot">Требуется дополнительно, чел.</span></div></article>
           </div>
 
           <article class="panel heat-panel"><div class="panel-title"><span>Покрытие нагрузки по часам</span><select id="riskQueue" aria-label="Выберите очередь"></select></div><p class="heat-note">Процент нагрузки выбранной очереди, который текущая команда сможет обработать в каждом часу. Чем краснее ячейка, тем выше риск нехватки сотрудников.</p><div class="heat-scroll"><div id="heatmap" class="heatmap"></div></div></article>
 
-          <div class="split lower">
+          <div class="split lower dashboard-single">
             <article class="panel"><div class="panel-title"><span>Команда в графике</span><small id="scheduleName"></small></div><div id="staff" class="staff-grid"></div></article>
-            <article class="panel critical-panel"><div class="panel-title"><span>Критические часы</span><small>где и кого не хватает в пиковые часы</small></div><div class="table-wrap"><table><thead><tr><th>Дата / время</th><th>Покрытие</th><th>Не покрыто</th><th>Очереди риска</th><th>Нужно дополнительно</th></tr></thead><tbody id="critical"></tbody></table></div></article>
           </div>
         </div>
       </section>
@@ -238,7 +236,7 @@
             <div class="settings-fields">
               <label class="field-wide">График команды<select id="sheet"></select></label>
               <label>Горизонт, дней<input id="horizon" type="number" min="7" max="62" value="28"></label>
-              <label>История, недель<input id="lookback" type="number" min="4" max="52" value="12"></label>
+              <label>История, недель<input id="lookback" type="number" min="4" max="52" value="48"></label>
               <label class="field-wide">Резерв мощности <span id="reserveValue">15%</span><input id="reserve" type="range" min="0" max="35" value="15"></label>
             </div>
             <div class="divider"></div>
@@ -286,7 +284,13 @@
               <label>Окончание<select id="operationEnd"></select></label>
             </div>
             <div id="positionsEditor" class="positions-editor"></div>
-            <div class="role-actions"><span id="configStatus" class="config-status"></span><button id="savePositionsBtn" class="primary"><span>Сохранить должности</span><i>✓</i></button></div>
+          </article>
+          <article class="panel role-settings sla-settings">
+            <div class="panel-title"><span><i class="panel-icon">%</i> Целевые SLA</span></div>
+            <p class="role-intro">Задайте целевую долю обращений и максимальное время назначения. Настройки очереди переопределяют настройки её группы; пустое поле означает наследование.</p>
+            <h3>По группам</h3><div id="slaGroupsEditor" class="sla-editor"></div>
+            <h3>По очередям</h3><div id="slaQueuesEditor" class="sla-editor queue-sla-editor"></div>
+            <div class="role-actions"><span id="configStatus" class="config-status"></span><button id="savePositionsBtn" class="primary"><span>Сохранить настройки</span><i>✓</i></button></div>
           </article>
         </div>
       </section>
@@ -404,6 +408,7 @@
       </section>
     </main>
   </div>
-  <script src="/static/app.js?v=20260811-36"></script>
+  <div class="modal-backdrop" id="hiringModal" hidden><section class="hiring-modal" role="dialog" aria-modal="true" aria-labelledby="hiringModalTitle"><button class="modal-close" id="closeHiringModal" aria-label="Закрыть">×</button><span class="result-label">ПЛАН НАЙМА</span><h2 id="hiringModalTitle">Кого и на какой график нанимать</h2><p>Рекомендации рассчитаны по часам прогнозного дефицита и настроенным целям SLA.</p><div id="hiringModalContent" class="hiring-modal-content"></div></section></div>
+  <script src="/static/app.js?v=20260908-45"></script>
 </body>
 </html>

@@ -280,18 +280,18 @@ def _historical_change(
     history: dict[str, object],
     forecast: list[dict[str, object]],
 ) -> dict[str, float]:
-    last_date = dt.date.fromisoformat(history["meta"]["last_date"])
     days = min(28, len({item["date"] for item in forecast}))
-    start = last_date - dt.timedelta(days=days - 1)
+    forecast_dates = sorted({dt.date.fromisoformat(item["date"]) for item in forecast})[:days]
+    comparison_dates = {_previous_year(day) for day in forecast_dates}
     historical = Counter()
     for day, group, count in history["daily"]:
         current = dt.date.fromisoformat(day)
-        if start <= current <= last_date:
+        if current in comparison_dates:
             historical[group] += int(count)
     predicted = Counter()
-    comparison_dates = set(sorted({item["date"] for item in forecast})[:days])
+    forecast_date_strings = {day.isoformat() for day in forecast_dates}
     for item in forecast:
-        if item["date"] not in comparison_dates:
+        if item["date"] not in forecast_date_strings:
             continue
         for group, value in item["demand"].items():
             predicted[group] += value
@@ -306,6 +306,14 @@ def _historical_change(
     return result
 
 
+def _previous_year(value: dt.date) -> dt.date:
+    """Return the same calendar date one year earlier, clamping leap day to 28 February."""
+    try:
+        return value.replace(year=value.year - 1)
+    except ValueError:
+        return value.replace(year=value.year - 1, day=28)
+
+
 def recommendations(
     rows: list[dict[str, object]],
     positions: list[dict[str, object]] | None = None,
@@ -316,6 +324,8 @@ def recommendations(
     role_periods = Counter()
     peak = Counter()
     deficit_by_role_hour: dict[str, Counter[int]] = defaultdict(Counter)
+    deficit_by_role_weekday_hour: dict[str, Counter[tuple[int, int]]] = defaultdict(Counter)
+    deficit_dates_by_role: dict[str, set[str]] = defaultdict(set)
 
     for row in rows:
         date = dt.date.fromisoformat(row["date"])
@@ -337,31 +347,63 @@ def recommendations(
             role_deficit_hours[role] += value / equivalent_capacity
             peak[role] = max(peak[role], value / equivalent_capacity)
             deficit_by_role_hour[role][hour] += value
+            deficit_by_role_weekday_hour[role][(date.weekday(), hour)] += value
+            deficit_dates_by_role[role].add(row["date"])
 
-    day_shifts = [(6, 18, "2/2 06:00–18:00"), (10, 22, "2/2 10:00–22:00"), (13, 22, "5/2 13:00–22:00")]
-    flexible_shifts = [(20, 8, "2/2 20:00–08:00"), (8, 20, "2/2 08:00–20:00"), (10, 19, "5/2 10:00–19:00")]
     horizon_days = max(1, len({row["date"] for row in rows}))
     result = []
     for position in configured:
         role = position["id"]
         if role_periods[role] <= 0:
             continue
+        hourly = deficit_by_role_hour[role]
+        weekday_hourly = deficit_by_role_weekday_hour[role]
+        total_weight = sum(weekday_hourly.values())
+        weekend_weight = sum(value for (weekday, _), value in weekday_hourly.items() if weekday >= 5)
+        night_weight = sum(value for (_, hour), value in weekday_hourly.items() if hour >= 23 or hour < 6)
+        active_hours = sum(1 for value in hourly.values() if value >= max(hourly.values(), default=0) * .15)
+        schedule_type = "2/2" if weekend_weight > total_weight * .18 or night_weight > total_weight * .2 or active_hours > 9 else "5/2"
+        weekend_percent = weekend_weight / total_weight * 100 if total_weight else 0
+        night_percent = night_weight / total_weight * 100 if total_weight else 0
+        deficit_days_percent = len(deficit_dates_by_role[role]) / horizon_days * 100
+        triggers = []
+        if weekend_percent > 18:
+            triggers.append(f"{weekend_percent:.0f}% дефицита приходится на выходные")
+        if night_percent > 20:
+            triggers.append(f"{night_percent:.0f}% дефицита приходится на ночь")
+        if active_hours > 9:
+            triggers.append(f"просадка распределена по {active_hours} часам суток")
+        if not triggers:
+            triggers.append("просадка сосредоточена в будни и укладывается в 8-часовую смену")
+        duration = 12 if schedule_type == "2/2" else 8
+        starts = range(24) if schedule_type == "2/2" else range(5, 16)
+        best_start = max(starts, key=lambda start: sum(
+            value for (weekday, hour), value in weekday_hourly.items()
+            if (schedule_type == "2/2" or weekday < 5) and hour in _shift_hours(start, (start + duration) % 24)
+        ))
+        best_end = (best_start + duration) % 24
         weekly_hours = role_deficit_hours[role] * 7 / horizon_days
-        weekly_fte = weekly_hours / 40
+        weekly_fte = weekly_hours / (42 if schedule_type == "2/2" else 40)
         if weekly_fte < 0.5:
             continue
-        people = max(1, math.ceil(weekly_hours / 40))
-        hourly = deficit_by_role_hour[role]
-        night_weight = sum(value for hour, value in hourly.items() if hour >= 23 or hour < 6)
-        shift_suggestions = flexible_shifts if night_weight > sum(hourly.values()) * 0.35 else day_shifts
-        best_shift = max(
-            shift_suggestions,
-            key=lambda shift: sum(hourly[h] for h in _shift_hours(shift[0], shift[1])),
-        )
+        minimum_rotation_people = 2 if schedule_type == "2/2" and deficit_days_percent >= 65 else 1
+        people = max(minimum_rotation_people, math.ceil(weekly_hours / (42 if schedule_type == "2/2" else 40)))
+        shift_hours = _shift_hours(best_start, best_end)
+        peak_hours = sorted(shift_hours, key=lambda hour: hourly[hour], reverse=True)[:3]
         result.append({
             "role": by_id[role]["name"],
             "people": people,
-            "shift": best_shift[2],
+            "shift": f"{schedule_type} · {best_start:02d}:00–{best_end:02d}:00",
+            "schedule_type": schedule_type,
+            "shift_start": best_start,
+            "shift_end": best_end,
+            "shift_duration_hours": duration,
+            "peak_hours": peak_hours,
+            "schedule_reason": "; ".join(triggers),
+            "weekend_deficit_percent": round(weekend_percent, 1),
+            "night_deficit_percent": round(night_percent, 1),
+            "deficit_days_percent": round(deficit_days_percent, 1),
+            "minimum_rotation_people": minimum_rotation_people,
             "deficit_periods": round(role_periods[role], 1),
             "peak_people": math.ceil(peak[role]),
         })
@@ -393,15 +435,15 @@ def summarize(
     total_demand = sum(demand.values())
     total_deficit = sum(deficit.values())
     comparison_days = min(28, len({item["date"] for item in forecast}))
-    history_end = dt.date.fromisoformat(history["meta"]["last_date"])
-    history_start = history_end - dt.timedelta(days=max(0, comparison_days - 1))
     forecast_dates = sorted({item["date"] for item in forecast})[:comparison_days]
+    history_start = _previous_year(dt.date.fromisoformat(forecast_dates[0])) if forecast_dates else None
+    history_end = _previous_year(dt.date.fromisoformat(forecast_dates[-1])) if forecast_dates else None
     return {
         "change_percent": _historical_change(history, forecast),
         "comparison_period": {
             "days": comparison_days,
-            "history_start": history_start.isoformat(),
-            "history_end": history_end.isoformat(),
+            "history_start": history_start.isoformat() if history_start else None,
+            "history_end": history_end.isoformat() if history_end else None,
             "forecast_start": forecast_dates[0] if forecast_dates else None,
             "forecast_end": forecast_dates[-1] if forecast_dates else None,
         },
