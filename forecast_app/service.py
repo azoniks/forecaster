@@ -287,6 +287,7 @@ class ForecastService:
             if self._is_operating_hour(int(item["hour"]), start_hour, end_hour)
         ]
         hourly_staff = shifts_to_hourly(shifts, params.include_vacancies, positions)
+        hourly_staff = self._project_staffing_profile(hourly_staff, shifts, forecast)
         evaluated = evaluate_capacity(forecast, hourly_staff, params.reserve_percent, positions)
         summary = summarize(history, forecast, evaluated, trends, positions)
         capacity_recommendations = summary["recommendations"]
@@ -335,6 +336,34 @@ class ForecastService:
             "heatmap": heatmap,
             "critical_hours": critical,
         }
+
+    @staticmethod
+    def _project_staffing_profile(hourly_staff, shifts, forecast):
+        """Repeat the selected schedule's weekday/hour staffing profile past its month."""
+        if not shifts or not forecast:
+            return hourly_staff
+        dates = sorted({dt.date.fromisoformat(shift.date) for shift in shifts})
+        by_weekday = defaultdict(list)
+        for value in dates:
+            by_weekday[value.weekday()].append(value)
+        profiles = defaultdict(Counter)
+        for weekday, sample_dates in by_weekday.items():
+            for sample_date in sample_dates:
+                for (date_value, hour), staff in list(hourly_staff.items()):
+                    if date_value != sample_date.isoformat():
+                        continue
+                    for key, count in staff.items():
+                        profiles[(weekday, hour)][key] += float(count) / len(sample_dates)
+        forecast_dates = sorted({str(row["date"]) for row in forecast})
+        for date_value in forecast_dates:
+            current = dt.date.fromisoformat(date_value)
+            if current in dates:
+                continue
+            for hour in range(24):
+                profile = profiles.get((current.weekday(), hour))
+                if profile:
+                    hourly_staff[(date_value, hour)] = Counter({key: round(value, 3) for key, value in profile.items()})
+        return hourly_staff
 
     def _load_schedule_overrides(self) -> list[dict[str, object]]:
         if not self.schedule_overrides_path.exists():
