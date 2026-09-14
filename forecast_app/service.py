@@ -320,6 +320,24 @@ class ForecastService:
             for position in positions if position["enabled"]
         }
         daily = self._daily_rows(evaluated, positions, params.reserve_percent)
+        position_daily: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
+        for row in forecast:
+            skills_key = "night_groups" if int(row["hour"]) >= 23 or int(row["hour"]) < 6 else "groups"
+            for group, demand in row["demand"].items():
+                candidates = [p for p in positions if p.get("enabled", True) and group in p.get(skills_key, [])]
+                if candidates:
+                    position = min(candidates, key=lambda p: len(p.get(skills_key, [])))
+                    position_daily[position["name"]][row["date"]] += float(demand)
+        expected_load = {
+            "daily": [
+                {
+                    "date": item["date"],
+                    "positions": {name: round(values.get(item["date"], 0.0), 1) for name, values in position_daily.items()},
+                    "queues": {queue["name"]: queue["daily"].get(item["date"], 0.0) for queue in summary["queues"]},
+                }
+                for item in daily
+            ],
+        }
         heatmap = self._hourly_heatmap(evaluated)
         critical = self._critical_hours(evaluated, positions, params.reserve_percent)
         return {
@@ -333,6 +351,7 @@ class ForecastService:
             },
             "summary": summary,
             "daily": daily,
+            "expected_load": expected_load,
             "heatmap": heatmap,
             "critical_hours": critical,
         }
@@ -1161,6 +1180,7 @@ class ForecastService:
             queue: defaultdict(float, group=group)
             for queue, group in queue_groups.items()
         }
+        daily_queue_demand: dict[tuple[str, str], float] = defaultdict(float)
         hourly_stats: dict[tuple[str, int], dict[str, float]] = defaultdict(lambda: defaultdict(float))
         for row in evaluated:
             row["queue_risk"] = []
@@ -1179,6 +1199,7 @@ class ForecastService:
                     demand = float(group_demand) * weight / weight_total
                     deficit = demand * deficit_ratio
                     stats[queue]["demand"] += demand
+                    daily_queue_demand[(row["date"], queue)] += demand
                     stats[queue]["deficit"] += deficit
                     hourly_stats[(queue, hour)]["demand"] += demand
                     hourly_stats[(queue, hour)]["deficit"] += deficit
@@ -1224,6 +1245,10 @@ class ForecastService:
                         if current_queue == queue
                     )
                 ],
+                "daily": {
+                    date: round(daily_queue_demand[(date, queue)], 1)
+                    for date in sorted({row["date"] for row in evaluated})
+                },
             })
         return sorted(result, key=lambda item: (item["coverage_percent"], -item["demand"], item["name"]))
 

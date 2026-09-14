@@ -62,6 +62,7 @@
           <div class="split dashboard-single">
             <article class="panel chart-panel"><div class="panel-title"><span>Сколько людей не хватает по дням</span><small id="chartDates"></small></div><p class="hint">Столбец показывает сотрудников, необходимых для закрытия дневного объёма за 8-часовую смену. Наведите на день, чтобы увидеть должности и исходные значения расчёта.</p><div id="dailyChart" class="chart people-chart"></div><div class="legend"><span class="deficit-dot">Требуется дополнительно, чел.</span></div></article>
           </div>
+          <article class="panel expected-load-panel"><div class="panel-title"><span>Ожидаемая нагрузка по дням и месяцам</span><label class="load-switch">Показывать<select id="loadDimension"><option value="positions">По должностям</option><option value="queues">По очередям</option></select></label></div><p class="hint">Количество прогнозных периодов. Наведите на день, чтобы увидеть состав нагрузки; ниже показана сумма периодов по месяцам.</p><div id="expectedLoadChart" class="expected-load-chart"></div><div id="expectedLoadMonths" class="expected-months"></div></article>
 
           <article class="panel heat-panel"><div class="panel-title"><span>Покрытие нагрузки по часам</span><select id="riskQueue" aria-label="Выберите очередь"></select></div><p class="heat-note">Процент нагрузки выбранной очереди, который текущая команда сможет обработать в каждом часу. Чем краснее ячейка, тем выше риск нехватки сотрудников.</p><div class="heat-scroll"><div id="heatmap" class="heatmap"></div></div></article>
 
@@ -409,6 +410,6 @@
     </main>
   </div>
   <div class="modal-backdrop" id="hiringModal" hidden><section class="hiring-modal" role="dialog" aria-modal="true" aria-labelledby="hiringModalTitle"><button class="modal-close" id="closeHiringModal" aria-label="Закрыть">×</button><span class="result-label">ПЛАН НАЙМА</span><h2 id="hiringModalTitle">Кого и на какой график нанимать</h2><p>Рекомендации рассчитаны по часам прогнозного дефицита и настроенным целям SLA.</p><div id="hiringModalContent" class="hiring-modal-content"></div></section></div>
-  <script src="/static/app.js?v=20260914-47"></script>
+  <script src="/static/app.js?v=20260914-48"></script>
 </body>
 </html>
