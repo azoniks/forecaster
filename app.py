@@ -87,7 +87,7 @@ class Handler(BaseHTTPRequestHandler):
                 if sheet not in metadata["schedule_sheets"]:
                     return self.send_json({"error": "Неизвестный лист графика"}, HTTPStatus.BAD_REQUEST)
                 params = ForecastParameters(
-                    horizon_days=self._integer(query, "horizon", 28, 7, 62),
+                    horizon_days=self._integer(query, "horizon", 366, 7, 366),
                     lookback_weeks=self._integer(query, "lookback", 48, 4, 52),
                     reserve_percent=self._float(query, "reserve", 15, 0, 40),
                     shared_growth=self._float(query, "shared_growth", 0, -50, 100),

@@ -235,7 +235,7 @@
             <div class="panel-title"><span><i class="panel-icon">✦</i> Параметры сценария</span><button id="resetBtn" class="text-btn">Сбросить</button></div>
             <div class="settings-fields">
               <label class="field-wide">График команды<select id="sheet"></select></label>
-              <label>Горизонт, дней<input id="horizon" type="number" min="7" max="62" value="28"></label>
+              <label>Горизонт, дней<input id="horizon" type="number" min="7" max="366" value="28"></label>
               <label>История, недель<input id="lookback" type="number" min="4" max="52" value="48"></label>
               <label class="field-wide">Резерв мощности <span id="reserveValue">15%</span><input id="reserve" type="range" min="0" max="35" value="15"></label>
             </div>
@@ -409,6 +409,6 @@
     </main>
   </div>
   <div class="modal-backdrop" id="hiringModal" hidden><section class="hiring-modal" role="dialog" aria-modal="true" aria-labelledby="hiringModalTitle"><button class="modal-close" id="closeHiringModal" aria-label="Закрыть">×</button><span class="result-label">ПЛАН НАЙМА</span><h2 id="hiringModalTitle">Кого и на какой график нанимать</h2><p>Рекомендации рассчитаны по часам прогнозного дефицита и настроенным целям SLA.</p><div id="hiringModalContent" class="hiring-modal-content"></div></section></div>
-  <script src="/static/app.js?v=20260908-45"></script>
+  <script src="/static/app.js?v=20260914-47"></script>
 </body>
 </html>
